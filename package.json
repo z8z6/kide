@@ -1,0 +1,166 @@
+{
+  "name": "kelyra",
+  "displayName": "Kelyra",
+  "description": "Kelyra language and Kelp project support",
+  "version": "0.4.1",
+  "publisher": "z8z6",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/z8z6/kide.git"
+  },
+  "engines": {
+    "vscode": "^1.91.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Formatters"
+  ],
+  "activationEvents": [
+    "onLanguage:kelyra",
+    "onLanguage:kelp",
+    "onView:kelp.actions"
+  ],
+  "main": "./extension.js",
+  "scripts": {
+    "test": "node --check extension.js && node test/smoke.js"
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "kelyra",
+        "aliases": [
+          "Kelyra",
+          "kelyra"
+        ],
+        "extensions": [
+          ".kly"
+        ],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "kelp",
+        "aliases": [
+          "Kelp"
+        ],
+        "filenames": [
+          "kelp.toml"
+        ],
+        "configuration": "./kelp-language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "kelyra",
+        "scopeName": "source.kelyra",
+        "path": "./syntaxes/kelyra.tmLanguage.json"
+      },
+      {
+        "language": "kelp",
+        "scopeName": "source.kelp.toml",
+        "path": "./syntaxes/kelp.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "kelp.check",
+        "title": "Kelp: Check",
+        "icon": "$(check)"
+      },
+      {
+        "command": "kelp.build",
+        "title": "Kelp: Compile",
+        "icon": "$(tools)"
+      },
+      {
+        "command": "kelp.debug",
+        "title": "Kelp: Debug",
+        "icon": "$(debug-alt)"
+      },
+      {
+        "command": "kelp.run",
+        "title": "Kelp: Run",
+        "icon": "$(play)"
+      },
+      {
+        "command": "kelp.test",
+        "title": "Kelp: Test",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "kelp.package",
+        "title": "Kelp: Package",
+        "icon": "$(package)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "kelp",
+          "title": "Kelp",
+          "icon": "assets/kelp.svg"
+        }
+      ]
+    },
+    "views": {
+      "kelp": [
+        {
+          "id": "kelp.actions",
+          "name": "Project Actions"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "kelp.build",
+          "when": "view == kelp.actions",
+          "group": "navigation@1"
+        },
+        {
+          "command": "kelp.debug",
+          "when": "view == kelp.actions",
+          "group": "navigation@2"
+        },
+        {
+          "command": "kelp.run",
+          "when": "view == kelp.actions",
+          "group": "navigation@3"
+        },
+        {
+          "command": "kelp.test",
+          "when": "view == kelp.actions",
+          "group": "navigation@4"
+        },
+        {
+          "command": "kelp.package",
+          "when": "view == kelp.actions",
+          "group": "navigation@5"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Kelyra",
+      "properties": {
+        "kelyra.formatter.path": {
+          "type": "string",
+          "default": "kelyra-format",
+          "description": "Path to the kelyra-format executable."
+        },
+        "kelyra.languageServer.path": {
+          "type": "string",
+          "default": "kelyra-ls",
+          "description": "Path to the kelyra-ls executable."
+        },
+        "kelp.path": {
+          "type": "string",
+          "default": "kelp",
+          "description": "Path to the kelp executable."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "^10.1.1"
+  }
+}

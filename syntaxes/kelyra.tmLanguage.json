@@ -1,0 +1,113 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Kelyra",
+  "scopeName": "source.kelyra",
+  "fileTypes": [
+    "kly"
+  ],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#declarations" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#numbers" },
+    { "include": "#annotations" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.kelyra",
+          "begin": "//",
+          "end": "$"
+        },
+        {
+          "name": "comment.block.kelyra",
+          "begin": "/\\*",
+          "end": "\\*/",
+          "patterns": [
+            { "include": "#comments" }
+          ]
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.kelyra",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.kelyra",
+          "match": "\\\\[\\\\\"nrt0]"
+        }
+      ]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "match": "\\b(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.function.kelyra" },
+            "2": { "name": "entity.name.function.kelyra" }
+          }
+        },
+        {
+          "match": "\\b(struct)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.struct.kelyra" },
+            "2": { "name": "entity.name.type.struct.kelyra" }
+          }
+        },
+        {
+          "match": "\\b(module|import)\\s+([A-Za-z_][A-Za-z0-9_.]*)",
+          "captures": {
+            "1": { "name": "keyword.control.import.kelyra" },
+            "2": { "name": "entity.name.namespace.kelyra" }
+          }
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.kelyra",
+          "match": "\\b(if|else|while|return|break|continue|when|defer)\\b"
+        },
+        {
+          "name": "storage.modifier.kelyra",
+          "match": "\\b(let|mut|pub|extern|parallel|meta)\\b"
+        },
+        {
+          "name": "constant.language.boolean.kelyra",
+          "match": "\\b(true|false)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "storage.type.builtin.kelyra",
+          "match": "\\b(i8|i16|i32|i64|i128|u8|u16|u32|u64|u128|f32|f64|f128|f256|f512|bool|char)\\b"
+        },
+        {
+          "name": "storage.type.c.kelyra",
+          "match": "\\bc\\.(char|schar|uchar|short|int|uint|long|longlong|size|ptrdiff|bool|wchar)\\b"
+        }
+      ]
+    },
+    "numbers": {
+      "name": "constant.numeric.kelyra",
+      "match": "(?<![A-Za-z0-9_])(?:[0-9]+(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)(?![A-Za-z0-9_])"
+    },
+    "annotations": {
+      "name": "entity.name.tag.kelyra",
+      "match": "@[A-Za-z_][A-Za-z0-9_]*"
+    },
+    "operators": {
+      "name": "keyword.operator.kelyra",
+      "match": "->|==|!=|<=|>=|&&|\\|\\||[=+\\-*/%!<>]"
+    }
+  }
+}

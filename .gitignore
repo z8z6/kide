@@ -1,0 +1,6 @@
+*.vsix
+.gradle/
+build/
+jetbrains/.gradle/
+jetbrains/build/
+node_modules/
