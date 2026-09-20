@@ -4,7 +4,9 @@ const childProcess = require("node:child_process");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
+const { promisify } = require("node:util");
 const vscode = require("vscode");
+const execFile = promisify(childProcess.execFile);
 
 let client;
 
@@ -135,11 +137,16 @@ const kelpFields = {
 };
 
 const kelpActions = [
+  ["Format File", "kelp.format", "symbol-keyword"],
   ["Compile", "kelp.build", "tools"],
   ["Debug", "kelp.debug", "debug-alt"],
   ["Run", "kelp.run", "play"],
   ["Test", "kelp.test", "beaker"],
   ["Package", "kelp.package", "package"],
+  ["Variables", "workbench.debug.action.focusVariablesView", "symbol-variable"],
+  ["Functions / Call Stack", "workbench.debug.action.focusCallStackView", "callstack"],
+  ["Watch Expressions", "workbench.debug.action.focusWatchView", "eye"],
+  ["Evaluate / Debug Console", "workbench.debug.action.focusRepl", "debug-console"],
 ];
 
 function kelpSectionAt(text, line) {
@@ -179,36 +186,99 @@ function provideKelpCompletions(document, position) {
   );
 }
 
-async function runKelp(command, wait = false) {
-  const folder = vscode.workspace.workspaceFolders?.[0];
-  const executable = vscode.workspace.getConfiguration("kelp").get("path", "kelp");
-  const shellExecution = new vscode.ShellExecution(executable, [command], {
-    cwd: folder?.uri.fsPath,
+async function projectContext() {
+  if (!vscode.workspace.isTrusted) throw new Error("Trust this workspace before running Kelp.");
+  const document = vscode.window.activeTextEditor?.document;
+  let folder = document && vscode.workspace.getWorkspaceFolder(document.uri);
+  if (!folder) {
+    const folders = vscode.workspace.workspaceFolders || [];
+    folder = folders.length === 1 ? folders[0] : await vscode.window.showWorkspaceFolderPick();
+  }
+  if (!folder) throw new Error("Open or select a Kelp workspace folder first.");
+  let cwd = document?.uri.scheme === "file" && vscode.workspace.getWorkspaceFolder(document.uri) === folder
+    ? path.dirname(document.uri.fsPath) : folder.uri.fsPath;
+  while (true) {
+    try {
+      await fs.access(path.join(cwd, "kelp.toml"));
+      return { folder, cwd };
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    const parent = path.dirname(cwd);
+    if (parent === cwd) throw new Error("Cannot find kelp.toml in this project or its parent directories.");
+    cwd = parent;
+  }
+}
+
+async function runKelp(command, { wait = false, project, args = [] } = {}) {
+  const { folder, cwd } = project || await projectContext();
+  const executable = vscode.workspace.getConfiguration("kelp", folder.uri).get("path", "kelp");
+  const executionOptions = new vscode.ProcessExecution(executable, [command, ...args], {
+    cwd,
   });
   const task = new vscode.Task(
     { type: "kelp", command },
     folder || vscode.TaskScope.Workspace,
     command,
     "kelp",
-    shellExecution,
+    executionOptions,
   );
   if (!wait) return vscode.tasks.executeTask(task);
   let execution;
+  let subscription;
   const completed = new Promise((resolve, reject) => {
-    const subscription = vscode.tasks.onDidEndTaskProcess((event) => {
+    subscription = vscode.tasks.onDidEndTaskProcess((event) => {
       if (event.execution !== execution) return;
-      subscription.dispose();
       if (event.exitCode === 0) resolve();
       else reject(new Error(`kelp ${command} exited with code ${event.exitCode}`));
     });
   });
-  execution = await vscode.tasks.executeTask(task);
-  return completed;
+  try {
+    execution = await vscode.tasks.executeTask(task);
+    return await completed;
+  } finally {
+    subscription.dispose();
+  }
 }
 
 async function debugKelp() {
-  await runKelp("build", true);
-  return vscode.commands.executeCommand("workbench.action.debug.start");
+  const project = await projectContext();
+  if (!vscode.extensions.getExtension("ms-vscode.cpptools"))
+    throw new Error("Install Microsoft's C/C++ extension (ms-vscode.cpptools) to connect VS Code to local GDB.");
+  const settings = vscode.workspace.getConfiguration("kelp", project.folder.uri);
+  const gdb = settings.get("debug.gdbPath", "gdb");
+  try {
+    await execFile(gdb, ["--version"], { timeout: 10000 });
+  } catch (error) {
+    throw new Error(`Cannot run local GDB (${gdb}). Install GDB or set kelp.debug.gdbPath. ${error.message}`);
+  }
+  if (!await vscode.workspace.saveAll(false)) throw new Error("Save project files before debugging.");
+  const { stdout } = await execFile(settings.get("path", "kelp"), ["output"], {
+    cwd: project.cwd, encoding: "utf8", timeout: 10000,
+  });
+  const program = stdout.replace(/\r?\n$/, "");
+  if (!path.isAbsolute(program)) throw new Error("kelp output did not return an absolute executable path. Update Kelp.");
+  await runKelp("build", { wait: true, project, args: ["--debug"] });
+  const started = await vscode.debug.startDebugging(project.folder, {
+    name: "Kelp: Local GDB", type: "cppdbg", request: "launch",
+    program, cwd: project.cwd, args: settings.get("debug.args", []),
+    MIMode: "gdb",
+    ...(gdb === "gdb" ? {} : { miDebuggerPath: gdb }),
+    stopAtEntry: true, externalConsole: false,
+    internalConsoleOptions: "openOnSessionStart",
+    sourceFileMap: { [path.join(project.cwd, ".kelp", "stage")]: project.cwd },
+    setupCommands: [{ text: "-enable-pretty-printing", ignoreFailures: true }],
+  });
+  if (!started) throw new Error("GDB debugging did not start. See the Debug Console for details.");
+  await vscode.commands.executeCommand("workbench.view.debug");
+  await vscode.commands.executeCommand("workbench.debug.action.focusRepl");
+  return started;
+}
+
+async function formatKelp() {
+  if (vscode.window.activeTextEditor?.document.languageId !== "kelyra")
+    throw new Error("Open a Kelyra (.kly) file to format it.");
+  return vscode.commands.executeCommand("editor.action.formatDocument");
 }
 
 async function format(document, token) {
@@ -287,11 +357,17 @@ async function activate(context) {
       },
     }),
   );
-  for (const command of ["check", "build", "debug", "run", "test", "package"])
+  for (const command of ["format", "check", "build", "debug", "run", "test", "package"])
     context.subscriptions.push(
-      vscode.commands.registerCommand(`kelp.${command}`, () =>
-        command === "debug" ? debugKelp() : runKelp(command),
-      ),
+      vscode.commands.registerCommand(`kelp.${command}`, async () => {
+        try {
+          if (command === "format") return await formatKelp();
+          if (command === "debug") return await debugKelp();
+          return await runKelp(command);
+        } catch (error) {
+          await vscode.window.showErrorMessage(error.message);
+        }
+      }),
     );
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument((document) => {
@@ -312,6 +388,10 @@ async function deactivate() {
 module.exports = {
   activate,
   deactivate,
+  debugKelp,
+  formatKelp,
+  kelpActions,
+  runKelp,
   documentAnnotations,
   format,
   kelpFieldAt,

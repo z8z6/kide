@@ -34,7 +34,7 @@ for (const { contents } of themes) {
   assert.ok(contents.tokenColors.some(({ scope }) => scope.includes("entity.name.tag")));
 }
 assert.ok(manifest.contributes.commands.some(({ command }) => command === "kelp.debug"));
-assert.match(extension, /new vscode\.ShellExecution\(executable, \[command\]/);
+assert.match(extension, /new vscode\.ProcessExecution\(executable, \[command, \.\.\.args\]/);
 assert.equal(manifest.dependencies["vscode-languageclient"], "^10.1.1");
 assert.equal(
   manifest.contributes.configuration.properties["kelyra.languageServer.path"].default,

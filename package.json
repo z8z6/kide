@@ -22,10 +22,17 @@
     "onView:kelp.actions"
   ],
   "main": "./extension.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "Kelp runs workspace-configured compiler and debugger executables."
+    }
+  },
   "scripts": {
-    "test": "node --check extension.js && node test/smoke.js"
+    "test": "node --check extension.js && node test/smoke.js && node test/debug.js"
   },
   "contributes": {
+    "breakpoints": [{ "language": "kelyra" }],
     "languages": [
       {
         "id": "kelyra",
@@ -74,6 +81,11 @@
       }
     ],
     "commands": [
+      {
+        "command": "kelp.format",
+        "title": "Kelp: Format File",
+        "icon": "$(symbol-keyword)"
+      },
       {
         "command": "kelp.check",
         "title": "Kelp: Check",
@@ -125,6 +137,11 @@
     "menus": {
       "view/title": [
         {
+          "command": "kelp.format",
+          "when": "view == kelp.actions",
+          "group": "navigation@0"
+        },
+        {
           "command": "kelp.build",
           "when": "view == kelp.actions",
           "group": "navigation@1"
@@ -149,6 +166,13 @@
           "when": "view == kelp.actions",
           "group": "navigation@5"
         }
+      ],
+      "editor/title": [
+        {
+          "command": "kelp.format",
+          "when": "editorLangId == kelyra",
+          "group": "navigation@1"
+        }
       ]
     },
     "configuration": {
@@ -168,6 +192,17 @@
           "type": "string",
           "default": "kelp",
           "description": "Path to the kelp executable."
+        },
+        "kelp.debug.gdbPath": {
+          "type": "string",
+          "default": "gdb",
+          "description": "Local GDB executable (from PATH or an absolute path). Requires the Microsoft C/C++ debug adapter."
+        },
+        "kelp.debug.args": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Arguments passed to the program by Kelp: Debug."
         }
       }
     }

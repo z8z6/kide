@@ -20,9 +20,34 @@ syntax colors with `workbench.colorCustomizations` and
 `editor.tokenColorCustomizations`, including theme-specific `[Kelyra Dark]`
 or `[Kelyra Light]` entries.
 It also recognizes `kelp.toml`, provides field hover and completion, and adds
-a Kelp activity-bar view with compile, debug, run, test, and package actions.
-Debug builds the project and starts the workspace's configured VS Code native
-debugger.
+a Kelp activity-bar view with format, compile, debug, run, test, and package actions.
+**Format File** (also in the editor title bar) formats the current `.kly` document
+using its registered formatter, preserving VS Code's undo and unsaved edits.
+
+### Local GDB debugging
+
+Install local **GDB** and the **Microsoft C/C++** extension (`ms-vscode.cpptools`).
+Use a Kelp version supporting `output` and `build --debug`. Clicking **Debug**:
+
+1. Selects the active editor's project (or asks for a workspace folder), saves
+   files, and reads the executable path from Kelp, including custom build outputs.
+2. Runs `kelp build --debug` at `-O0` without modifying `kelp.toml`.
+3. Starts a `cppdbg` session using local GDB, stops at entry, and opens Run and
+   Debug plus the Debug Console. No `launch.json` is required or overwritten.
+
+Configure `kelp.debug.gdbPath` (default `gdb` on `PATH`) and `kelp.debug.args` as needed.
+The Kelp sidebar links to **Variables**, **Functions / Call Stack**, **Watch
+Expressions**, and **Evaluate / Debug Console**. Call Stack lists the active
+function frames, not all functions in the project. Evaluation uses GDB's expression
+syntax; it is not a Kelyra interpreter. You can use `-exec info functions` in the
+Debug Console to list symbols.
+
+Use the updated Kelyra compiler: `-O0` emits local/parameter names, types, storage
+locations, and lexical scopes, including pointers, arrays, class fields and
+destructured return values. Optimized builds currently omit this metadata.
+Evaluation uses the selected stack frame. Imported C records remain opaque and
+wide `f256`/`f512` values do not yet have native debug locations.
+See the [VS Code GDB configuration reference](https://code.visualstudio.com/docs/cpp/launch-json-reference).
 
 ```sh
 npm test
