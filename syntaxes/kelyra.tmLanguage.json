@@ -55,10 +55,10 @@
           }
         },
         {
-          "match": "\\b(struct)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "\\b(class)\\s+([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
-            "1": { "name": "storage.type.struct.kelyra" },
-            "2": { "name": "entity.name.type.struct.kelyra" }
+            "1": { "name": "storage.type.class.kelyra" },
+            "2": { "name": "entity.name.type.class.kelyra" }
           }
         },
         {
@@ -104,7 +104,7 @@
       "patterns": [
         {
           "name": "storage.type.builtin.kelyra",
-          "match": "\\b(i8|i16|i32|i64|i128|isize|u8|u16|u32|u64|u128|usize|f32|f64|f128|f256|f512|bool|char)\\b"
+          "match": "\\b(i8|i16|i32|i64|i128|isize|u8|u16|u32|u64|u128|usize|f32|f64|f128|f256|f512|bool|char|void)\\b"
         },
         {
           "name": "storage.type.c.kelyra",
@@ -126,6 +126,14 @@
     },
     "builtinMembers": {
       "patterns": [
+        {
+          "name": "variable.language.this.kelyra",
+          "match": "\\bthis\\b"
+        },
+        {
+          "name": "entity.name.function.lifecycle.kelyra",
+          "match": "\\b(init|deinit)(?=\\s*\\()"
+        },
         {
           "name": "support.function.asm.kelyra",
           "match": "(?<=\\.)(in|out|op)\\b"

@@ -61,6 +61,18 @@
         "path": "./syntaxes/kelp.tmLanguage.json"
       }
     ],
+    "themes": [
+      {
+        "label": "Kelyra Dark",
+        "uiTheme": "vs-dark",
+        "path": "./themes/kelyra-dark-color-theme.json"
+      },
+      {
+        "label": "Kelyra Light",
+        "uiTheme": "vs",
+        "path": "./themes/kelyra-light-color-theme.json"
+      }
+    ],
     "commands": [
       {
         "command": "kelp.check",

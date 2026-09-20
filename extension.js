@@ -8,6 +8,110 @@ const vscode = require("vscode");
 
 let client;
 
+const kelyraTypes = {
+  i8: "8-bit signed integer.",
+  i16: "16-bit signed integer.",
+  i32: "32-bit signed integer.",
+  i64: "64-bit signed integer.",
+  i128: "128-bit signed integer.",
+  isize: "Pointer-sized signed integer.",
+  void: "No return value. Equivalent to omitting a function's return type; use return; or reach the end of its body.",
+  u8: "8-bit unsigned integer.",
+  u16: "16-bit unsigned integer.",
+  u32: "32-bit unsigned integer.",
+  u64: "64-bit unsigned integer.",
+  u128: "128-bit unsigned integer.",
+  usize: "Pointer-sized unsigned integer.",
+  f32: "32-bit floating-point number.",
+  f64: "64-bit floating-point number.",
+  f128: "128-bit floating-point number.",
+  f256: "256-bit floating-point type; currently limited to signatures and forwarding.",
+  f512: "512-bit floating-point type; currently limited to signatures and forwarding.",
+  bool: "Boolean value lowered to one bit.",
+  char: "Unicode scalar value lowered to 32 bits.",
+  "c.char": "C `char` with the target ABI width.",
+  "c.schar": "C `signed char`.",
+  "c.uchar": "C `unsigned char`.",
+  "c.short": "C `short`.",
+  "c.int": "C `int`.",
+  "c.uint": "C `unsigned int`.",
+  "c.long": "C `long` with the target ABI width.",
+  "c.longlong": "C `long long`.",
+  "c.size": "C `size_t` with the target ABI width.",
+  "c.ptrdiff": "C `ptrdiff_t` with the target ABI width.",
+  "c.bool": "C `_Bool`.",
+  "c.wchar": "C `wchar_t` with the target ABI width.",
+  "meta.string": "Compile-time string annotation value.",
+  "meta.symbol": "Compile-time reference to a declared symbol.",
+  "meta.type": "Compile-time reference to a Kelyra type.",
+};
+
+const builtinAnnotations = {
+  target: "Restricts an annotation to the listed declaration kinds: `function`, `class`, `field`, `method`, `constructor`, `destructor`, or `annotation`.",
+  repeatable: "Allows an annotation to appear more than once on the same declaration.",
+  retention: "Sets annotation retention to `source` or `compile`; `compile` is the default.",
+};
+
+const classKeywords = {
+  class: "Value type with fields, methods, direct construction and scope-based RAII destruction.",
+  this: "Implicit pointer to the current class instance. Optional for unambiguous member access; use this.field when a parameter or local shadows a field.",
+  init: "Constructor. Initializes each field once in declaration order before ordinary statements.",
+  deinit: "Destructor. Runs automatically on normal scope exits, followed by class fields in reverse order. Cannot be called explicitly.",
+};
+
+function documentAnnotations(text) {
+  return [...text.matchAll(/^\s*(?:pub\s+)?annotation\s+([A-Za-z_][A-Za-z0-9_]*)/gm)].map(
+    (match) => match[1],
+  );
+}
+
+function kelyraSymbolAt(line, character) {
+  for (const match of line.matchAll(/@?[A-Za-z_][A-Za-z0-9_.]*/g)) {
+    if (character >= match.index && character <= match.index + match[0].length)
+      return match[0];
+  }
+  return undefined;
+}
+
+function provideKelyraHover(document, position) {
+  const symbol = kelyraSymbolAt(document.lineAt(position.line).text, position.character);
+  if (!symbol) return undefined;
+  const name = symbol.startsWith("@") ? symbol.slice(1) : symbol;
+  if (kelyraTypes[name]) return new vscode.Hover(`**${name}**\n\n${kelyraTypes[name]}`);
+  if (classKeywords[name]) return new vscode.Hover(`**${name}**\n\n${classKeywords[name]}`);
+  if (builtinAnnotations[name])
+    return new vscode.Hover(`**@${name}**\n\n${builtinAnnotations[name]}`);
+  if (documentAnnotations(document.getText()).includes(name))
+    return new vscode.Hover(`**@${name}**\n\nUser-defined annotation in this document.`);
+  return undefined;
+}
+
+function provideKelyraCompletions(document, position) {
+  const prefix = document.lineAt(position.line).text.slice(0, position.character);
+  const afterAt = /@[A-Za-z_][A-Za-z0-9_]*$|@$/.test(prefix);
+  const annotations = [...Object.entries(builtinAnnotations), ...documentAnnotations(document.getText()).map(
+    (name) => [name, "User-defined annotation in this document."],
+  )];
+  return [
+    ...Object.entries(classKeywords).map(([name, documentation]) => {
+      const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Keyword);
+      item.documentation = documentation;
+      return item;
+    }),
+    ...Object.entries(kelyraTypes).map(([name, documentation]) => {
+      const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Class);
+      item.documentation = documentation;
+      return item;
+    }),
+    ...annotations.map(([name, documentation]) => {
+      const item = new vscode.CompletionItem(`@${name}`, vscode.CompletionItemKind.Reference);
+      item.insertText = afterAt ? name : `@${name}`;
+      item.documentation = documentation;
+      return item;
+    }),
+  ];
+}
+
 const kelpFields = {
   project: [
     ["name", '"${1:app}"', "Project name."],
@@ -157,6 +261,14 @@ async function activate(context) {
     vscode.languages.registerDocumentFormattingEditProvider("kelyra", {
       provideDocumentFormattingEdits: format,
     }),
+    vscode.languages.registerHoverProvider("kelyra", {
+      provideHover: provideKelyraHover,
+    }),
+    vscode.languages.registerCompletionItemProvider(
+      "kelyra",
+      { provideCompletionItems: provideKelyraCompletions },
+      "@",
+    ),
   );
   context.subscriptions.push(
     vscode.languages.registerHoverProvider("kelp", {
@@ -197,4 +309,14 @@ async function deactivate() {
   }
 }
 
-module.exports = { activate, deactivate, format, kelpFieldAt, kelpSectionAt };
+module.exports = {
+  activate,
+  deactivate,
+  documentAnnotations,
+  format,
+  kelpFieldAt,
+  kelpSectionAt,
+  kelyraSymbolAt,
+  provideKelyraCompletions,
+  provideKelyraHover,
+};
