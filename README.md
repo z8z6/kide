@@ -7,6 +7,8 @@ Kelyra editor support for VS Code and JetBrains IDEs.
 The extension provides `.kly` syntax highlighting, comments, brackets,
 indentation, document formatting through `kelyra-format`, and hover,
 completion, diagnostics, and definition navigation through `kelyra-ls`.
+Highlighting covers annotations, compile-time `when`/`meta` reflection,
+prefix pointers, inline assembly chains, and wildcard imports.
 It also recognizes `kelp.toml`, provides field hover and completion, and adds
 a Kelp activity-bar view with compile, debug, run, test, and package actions.
 Debug builds the project and starts the workspace's configured VS Code native

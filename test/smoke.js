@@ -33,8 +33,40 @@ assert.equal(
 assert.equal(grammar.scopeName, "source.kelyra");
 assert.equal(language.comments.lineComment, "//");
 assert.match("fn main", new RegExp(grammar.repository.declarations.patterns[0].match));
+assert.ok(
+  grammar.repository.declarations.patterns.some(({ match }) =>
+    new RegExp(match).test("annotation route"),
+  ),
+);
+assert.ok(
+  grammar.repository.declarations.patterns.some(({ match }) =>
+    new RegExp(match).test("import web.*"),
+  ),
+);
 assert.match("c.longlong", new RegExp(grammar.repository.types.patterns[1].match));
+assert.match("meta.symbol", new RegExp(grammar.repository.types.patterns[2].match));
+assert.match("@web.route", new RegExp(grammar.repository.annotations.match));
+assert.match("usize", new RegExp(grammar.repository.types.patterns[0].match));
+const modifiers = new RegExp(grammar.repository.keywords.patterns[1].match);
+assert.match("let", modifiers);
+assert.doesNotMatch("mut", modifiers);
+assert.ok(
+  grammar.repository.keywords.patterns.some(({ match }) =>
+    new RegExp(match).test("when") && new RegExp(match).test("asm"),
+  ),
+);
+assert.ok(
+  grammar.repository.builtinMembers.patterns.some(({ match }) =>
+    new RegExp(match).test(".has_annotation"),
+  ),
+);
+assert.ok(
+  grammar.repository.builtinMembers.patterns.some(({ match }) =>
+    new RegExp(match).test(".in"),
+  ),
+);
 assert.match("value != 42", new RegExp(grammar.repository.operators.match));
+assert.match("&value", new RegExp(grammar.repository.operators.match));
 
 const originalLoad = Module._load;
 Module._load = function (request, parent, isMain) {
