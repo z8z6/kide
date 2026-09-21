@@ -9,7 +9,11 @@
     "editorLineNumber.foreground": "#616E88",
     "editorLineNumber.activeForeground": "#D8DEE9",
     "editor.selectionBackground": "#434C5E",
-    "editor.inactiveSelectionBackground": "#3B4252"
+    "editor.inactiveSelectionBackground": "#3B4252",
+    "editorInlayHint.background": "#2E3440",
+    "editorInlayHint.foreground": "#81A1C1",
+    "editorInlayHint.parameterBackground": "#2E3440",
+    "editorInlayHint.parameterForeground": "#88C0D0"
   },
   "tokenColors": [
     {

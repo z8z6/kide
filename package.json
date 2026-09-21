@@ -2,7 +2,7 @@
   "name": "kelyra",
   "displayName": "Kelyra",
   "description": "Kelyra language and Kelp project support",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "publisher": "z8z6",
   "license": "MIT",
   "repository": {
@@ -44,7 +44,11 @@
         "extensions": [
           ".kly"
         ],
-        "configuration": "./language-configuration.json"
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/kelyra-light.svg",
+          "dark": "./icons/kelyra-dark.svg"
+        }
       },
       {
         "id": "kelp",
@@ -54,7 +58,11 @@
         "filenames": [
           "kelp.toml"
         ],
-        "configuration": "./kelp-language-configuration.json"
+        "configuration": "./kelp-language-configuration.json",
+        "icon": {
+          "light": "./icons/kelp-light.svg",
+          "dark": "./icons/kelp-dark.svg"
+        }
       }
     ],
     "grammars": [
@@ -84,7 +92,9 @@
         "editor.tabSize": 2,
         "editor.insertSpaces": true,
         "editor.defaultFormatter": "z8z6.kelyra",
-        "editor.formatOnSave": true
+        "editor.formatOnSave": true,
+        "editor.inlayHints.fontSize": 11,
+        "editor.inlayHints.padding": true
       },
       "[kelp]": {
         "editor.tabSize": 2,
@@ -106,7 +116,8 @@
     "commands": [
       {
         "command": "kelp.format",
-        "title": "Kelp: Format File",
+        "title": "Format Document",
+        "category": "Kelp",
         "icon": "$(symbol-keyword)"
       },
       {
@@ -320,6 +331,13 @@
           "command": "kelp.format",
           "when": "editorLangId == kelyra",
           "group": "navigation@1"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "kelp.format",
+          "when": "editorLangId == kelyra",
+          "group": "1_modification@1"
         }
       ]
     },

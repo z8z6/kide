@@ -19,7 +19,12 @@ Kelp manifests, and `[kelyra]`/`[kelp]` default to two-space indentation.
 Braces and block comments fold, and `kelp.toml` completes section headers.
 Parameter-name inlay hints appear at call sites: set
 `kelyra.inlayHints.parameterNames` to `literals` (default), `all`, or `off`.
-Hints for other modules come from indexing the workspace `.kly` files.
+Hints for other modules come from indexing the workspace `.kly` files. Hints are
+styled like inline code: the bundled themes give them a distinct background and
+`[kelyra]` defaults them to a smaller, padded font, which you can change with
+`"[kelyra]": { "editor.inlayHints.fontSize": ... }`.
+`.kly` and `kelp.toml` files have their own light and dark file icons, shown by
+the default file icon theme and by any theme that leaves the language to VS Code.
 Choose **Kelyra Dark** or **Kelyra Light** with **Preferences: Color Theme**.
 Both use VS Code's standard theme contribution, so users can override UI and
 syntax colors with `workbench.colorCustomizations` and
@@ -31,8 +36,9 @@ dependencies, and adds a Kelp activity-bar view with format, compile, debug,
 run, test, package, and members actions. Compile and check tasks feed a
 contributed problem matcher, so `kelyra` diagnostics also appear in the
 Problems panel.
-**Format File** (also in the editor title bar) formats the current `.kly` document
-using its registered formatter, preserving VS Code's undo and unsaved edits.
+**Format Document** (in the editor title bar and the editor's right-click menu)
+formats the current `.kly` document using its registered formatter, preserving
+VS Code's undo and unsaved edits.
 `[kelyra]` files default to this formatter and to format-on-save.
 
 ### Projects view
