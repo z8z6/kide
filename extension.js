@@ -569,7 +569,7 @@ const kelpFields = {
   build: [
     ["compiler", '"${1:kelyra}"', "Kelyra compiler executable."],
     ["kind", '"${1|executable,library|}"', "Build target: `executable` links a program, `library` compiles a linked object."],
-    ["output", '"${1:build/app}"', "Artifact path: the executable or the library object."],
+    ["output", '"${1:app}"', "Artifact name inside the project's build directory, `.kelp/build/<project path>`."],
     ["optimization", "${1:0}", "Optimization level from 0 to 3."],
     ["safe-level", "${1:0}", "Kelyra runtime safety level."],
     ["c-sources", "[${1}]", "C source files compiled with the project."],
@@ -578,7 +578,7 @@ const kelpFields = {
   workspace: [
     ["members", "[${1}]", "Subproject directories, each with its own `kelp.toml`. Commands accept a member name or relative path."],
   ],
-  package: [["output", '"${1:build/app-0.1.0.tar.gz}"', "Package archive path."]],
+  package: [["output", '"${1:app-0.1.0.tar.gz}"', "Archive name inside the project's build directory."]],
   test: [["sources", "[${1}]", "Additional Kelyra test sources."]],
   dependencies: [
     ["repository", '"${1:git@github.com:owner/repo.git}"', "Dependency Git repository."],
@@ -721,8 +721,18 @@ function parseKelpManifest(text) {
   }
   if (!manifest.output)
     manifest.output =
-      manifest.buildKind === "library" ? `build/${manifest.name}.o` : `build/${manifest.name}`;
+      manifest.buildKind === "library" ? `${manifest.name}.o` : manifest.name;
   return manifest;
+}
+
+// Kelp builds every project into the workspace cache, mirroring each project's
+// path: `libs/math` produces `.kelp/build/libs/math/math.o`. A declared output
+// is relative to that directory, and a leading `build/` still means it.
+function kelpArtifactPath(output, relativeDir) {
+  const base =
+    relativeDir && relativeDir !== "." ? `.kelp/build/${relativeDir}` : ".kelp/build";
+  const declared = output.startsWith("build/") ? output.slice("build/".length) : output;
+  return `${base}/${declared}`;
 }
 
 // Discovers projects by walking `kelp.toml` files. Declared workspace members
@@ -740,7 +750,7 @@ async function scanKelpProjects(root) {
           dir: relative || ".",
           name: manifest.name || path.basename(directory),
           buildKind: manifest.buildKind,
-          output: manifest.output,
+          output: kelpArtifactPath(manifest.output, relative),
           entry: manifest.entry,
         });
     } catch (error) {
@@ -1376,6 +1386,7 @@ module.exports = {
   debugKelp,
   formatKelp,
   kelpActions,
+  kelpArtifactPath,
   kelpFields,
   kelpOutputPath,
   kelpProjectTree,

@@ -239,6 +239,7 @@ const {
   format,
   kelpFieldAt,
   kelpFields,
+  kelpArtifactPath,
   kelpProjectTree,
   kelpSectionAt,
   kelyraParameterHints,
@@ -501,10 +502,18 @@ format(
 // The Kelp project view parses `kelp members`, nests members by directory, and
 // falls back to scanning manifests when the executable is unavailable.
 assert.deepEqual(
-  parseKelpMembers("app app executable build/app\n. - workspace -\nlibs/math math library build/math.o\n"),
+  parseKelpMembers(
+    "app app executable .kelp/build/app/app\n. - workspace -\n" +
+      "libs/math math library .kelp/build/libs/math/math.o\n",
+  ),
   [
-    { dir: "app", name: "app", buildKind: "executable", output: "build/app" },
-    { dir: "libs/math", name: "math", buildKind: "library", output: "build/math.o" },
+    { dir: "app", name: "app", buildKind: "executable", output: ".kelp/build/app/app" },
+    {
+      dir: "libs/math",
+      name: "math",
+      buildKind: "library",
+      output: ".kelp/build/libs/math/math.o",
+    },
   ],
 );
 const parsed = parseKelpManifest(
@@ -516,13 +525,22 @@ assert.equal(parsed.name, "app");
 assert.equal(parsed.entry, "src/main.kly");
 assert.equal(parsed.buildKind, "library");
 assert.deepEqual(parsed.members, ["libs/math"]);
-assert.equal(parsed.output, "build/app.o"); // The default output follows the kind.
+assert.equal(parsed.output, "app.o"); // The default output follows the kind.
+// Artifacts live in the workspace cache, mirroring each project's path.
+assert.equal(kelpArtifactPath("math.o", "libs/math"), ".kelp/build/libs/math/math.o");
+assert.equal(kelpArtifactPath("build/app", "app"), ".kelp/build/app/app");
+assert.equal(kelpArtifactPath("app", "."), ".kelp/build/app");
 assert.equal(parseKelpManifest("[workspace]\nmembers = []\n").hasProject, false);
 
 const tree = kelpProjectTree([
-  { dir: ".", name: "root", buildKind: "executable", output: "build/root" },
-  { dir: "libs/math", name: "math", buildKind: "library", output: "build/math.o" },
-  { dir: "app", name: "app", buildKind: "executable", output: "build/app" },
+  { dir: ".", name: "root", buildKind: "executable", output: ".kelp/build/root" },
+  {
+    dir: "libs/math",
+    name: "math",
+    buildKind: "library",
+    output: ".kelp/build/libs/math/math.o",
+  },
+  { dir: "app", name: "app", buildKind: "executable", output: ".kelp/build/app/app" },
 ]);
 assert.deepEqual(
   tree.map(({ type, label }) => [type, label]),
@@ -530,7 +548,7 @@ assert.deepEqual(
 );
 assert.equal(tree[0].children[0].relDir, "libs/math");
 assert.equal(tree[0].children[0].buildKind, "library");
-assert.equal(tree[0].children[0].output, "build/math.o");
+assert.equal(tree[0].children[0].output, ".kelp/build/libs/math/math.o");
 
 const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kide-projects-"));
 fs.mkdirSync(path.join(projectRoot, "libs/math"), { recursive: true });

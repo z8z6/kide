@@ -16,7 +16,7 @@
       "[build]",
       "compiler = \"kelyra\"",
       "kind = \"${1|executable,library|}\"",
-      "output = \"build/${2:app}\"",
+      "output = \"${2:app}\"",
       "optimization = 0",
       "safe-level = 0",
       "c-sources = []",
@@ -32,7 +32,7 @@
   },
   "Package": {
     "prefix": "package",
-    "body": ["[package]", "output = \"build/${1:app}-0.1.0.tar.gz\"", "${0}"],
+    "body": ["[package]", "output = \"${1:app}-0.1.0.tar.gz\"", "${0}"],
     "description": "Source archive output."
   },
   "Test": {

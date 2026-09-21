@@ -230,7 +230,7 @@ async function test() {
   assert.equal(projects.getTreeItem(nodes[0]).contextValue, "kelp.directory");
   const demo = projects.getTreeItem(nodes[0].children[0]);
   assert.equal(demo.label, "demo");
-  assert.equal(demo.description, "library · build/demo.o");
+  assert.equal(demo.description, "library · .kelp/build/libs/demo/demo.o");
   assert.equal(demo.contextValue, "kelp.project");
   assert.equal(demo.project.cwd, path.join(projectRoot, "libs/demo"));
   assert.equal(demo.command.command, "kelp.openManifest");
