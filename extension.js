@@ -666,6 +666,378 @@ function provideKelpCompletions(document, position) {
   );
 }
 
+// `kelp members` prints one line per project: "<dir> <name> <kind> <output>".
+// A workspace root that is not itself a project prints "-" for name and output.
+function parseKelpMembers(text) {
+  const members = [];
+  for (const line of text.split(/\r?\n/)) {
+    const columns = line.trim().split(/\s+/);
+    if (columns.length < 3) continue;
+    const [dir, name, buildKind, output] = columns;
+    if (name === "-") continue;
+    members.push({
+      dir,
+      name,
+      buildKind: buildKind === "library" ? "library" : "executable",
+      output: output && output !== "-" ? output : "",
+    });
+  }
+  return members;
+}
+
+// Reads the handful of manifest fields the project view needs without pulling
+// in a TOML parser. Sections, string values, and string arrays are enough.
+function parseKelpManifest(text) {
+  const manifest = {
+    hasProject: false,
+    name: "",
+    buildKind: "executable",
+    entry: "",
+    output: "",
+    members: [],
+  };
+  let section = "";
+  for (const line of text.split(/\r?\n/)) {
+    const header = line.match(/^\s*\[([^\]]+)\]/);
+    if (header) {
+      section = header[1].trim();
+      if (section === "project") manifest.hasProject = true;
+      continue;
+    }
+    const assignment = line.match(/^\s*([A-Za-z][A-Za-z0-9-]*)\s*=/);
+    if (!assignment) continue;
+    const key = assignment[1];
+    const strings = [...line.matchAll(/"([^"]*)"/g)].map((match) => match[1]);
+    if (section === "project") {
+      if (key === "name" && strings.length) manifest.name = strings[0];
+      else if (key === "entry" && strings.length) manifest.entry = strings[0];
+    } else if (section === "build") {
+      if (key === "kind" && strings.length)
+        manifest.buildKind = strings[0] === "library" ? "library" : "executable";
+      else if (key === "output" && strings.length) manifest.output = strings[0];
+    } else if (section === "workspace" && key === "members") {
+      manifest.members = strings;
+    }
+  }
+  if (!manifest.output)
+    manifest.output =
+      manifest.buildKind === "library" ? `build/${manifest.name}.o` : `build/${manifest.name}`;
+  return manifest;
+}
+
+// Discovers projects by walking `kelp.toml` files. Declared workspace members
+// win over directory scans so the tree matches what Kelp actually builds, and
+// generated directories are never descended into.
+async function scanKelpProjects(root) {
+  const projects = [];
+  const skipped = new Set(["build", "node_modules", "target"]);
+  async function walk(directory, relative) {
+    let manifest;
+    try {
+      manifest = parseKelpManifest(await fs.readFile(path.join(directory, "kelp.toml"), "utf8"));
+      if (manifest.hasProject)
+        projects.push({
+          dir: relative || ".",
+          name: manifest.name || path.basename(directory),
+          buildKind: manifest.buildKind,
+          output: manifest.output,
+          entry: manifest.entry,
+        });
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    let entries;
+    try {
+      entries = await fs.readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      return;
+    }
+    const childRelative = (name) => (relative ? `${relative}/${name}` : name);
+    const directories = entries.filter(
+      (entry) => entry.isDirectory() && !entry.name.startsWith(".") && !skipped.has(entry.name),
+    );
+    const children = manifest && manifest.members.length
+      ? directories.filter((entry) =>
+          manifest.members.some((member) => {
+            const normalized = member.replace(/^\.\//, "").replace(/\/+$/, "");
+            return (
+              normalized === childRelative(entry.name) ||
+              normalized.startsWith(`${childRelative(entry.name)}/`)
+            );
+          }),
+        )
+      : directories;
+    for (const entry of children)
+      await walk(path.join(directory, entry.name), childRelative(entry.name));
+  }
+  await walk(root, "");
+  return projects;
+}
+
+// Nests projects by their relative directory so `libs/math` becomes a folder
+// node that carries the project. `dir` of "." is the workspace root itself.
+function kelpProjectTree(projects) {
+  const roots = [];
+  const nodes = new Map();
+  const ensure = (relDir) => {
+    const existing = nodes.get(relDir);
+    if (existing) return existing;
+    const segments = relDir.split("/");
+    const node = {
+      type: "directory",
+      relDir,
+      label: segments[segments.length - 1],
+      children: [],
+    };
+    nodes.set(relDir, node);
+    const parentRel = segments.slice(0, -1).join("/");
+    (parentRel ? ensure(parentRel).children : roots).push(node);
+    return node;
+  };
+  for (const project of projects) {
+    if (!project.dir || project.dir === ".") {
+      roots.push({ ...project, type: "project", label: project.name, children: [] });
+      continue;
+    }
+    Object.assign(ensure(project.dir), { type: "project", label: project.name, ...project });
+  }
+  const order = (left, right) =>
+    left.type === right.type
+      ? String(left.label).localeCompare(String(right.label))
+      : left.type === "directory"
+        ? -1
+        : 1;
+  const sort = (node) => {
+    node.children.sort(order);
+    node.children.forEach(sort);
+  };
+  roots.sort(order);
+  roots.forEach(sort);
+  return roots;
+}
+
+class KelpProjectTreeProvider {
+  constructor() {
+    this.emitter = new vscode.EventEmitter();
+    this.onDidChangeTreeData = this.emitter.event;
+  }
+
+  refresh() {
+    this.emitter.fire();
+  }
+
+  async projects(folder) {
+    let nodes;
+    if (vscode.workspace.isTrusted) {
+      try {
+        const executable = vscode.workspace
+          .getConfiguration("kelp", folder.uri)
+          .get("path", "kelp");
+        const { stdout } = await execFile(executable, ["members"], {
+          cwd: folder.uri.fsPath,
+          encoding: "utf8",
+          timeout: 10000,
+        });
+        const members = parseKelpMembers(stdout);
+        if (members.length) nodes = kelpProjectTree(members);
+      } catch (error) {
+        // The executable may be missing; the manifests still describe the tree.
+      }
+    }
+    if (!nodes) nodes = kelpProjectTree(await scanKelpProjects(folder.uri.fsPath));
+    const stamp = (node) => {
+      node.folder = folder;
+      node.children.forEach(stamp);
+    };
+    nodes.forEach(stamp);
+    return nodes;
+  }
+
+  async getChildren(element) {
+    if (!element) {
+      const folders = vscode.workspace.workspaceFolders || [];
+      if (folders.length <= 1) return folders.length ? this.projects(folders[0]) : [];
+      return folders.map((folder) => ({
+        type: "folder",
+        label: folder.name,
+        folder,
+        children: [],
+      }));
+    }
+    if (element.type === "folder") return this.projects(element.folder);
+    return element.children;
+  }
+
+  getTreeItem(node) {
+    if (node.type === "directory") {
+      const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.Expanded);
+      item.iconPath = new vscode.ThemeIcon("folder");
+      item.contextValue = "kelp.directory";
+      return item;
+    }
+    const item = new vscode.TreeItem(
+      node.label,
+      node.children.length
+        ? vscode.TreeItemCollapsibleState.Expanded
+        : vscode.TreeItemCollapsibleState.None,
+    );
+    const directory = path.join(node.folder.uri.fsPath, node.dir === "." ? "" : node.dir);
+    item.description = `${node.buildKind} · ${node.output}`;
+    item.tooltip = new vscode.MarkdownString(
+      `**${node.label}** — ${node.buildKind}\n\nOutput: \`${node.output}\``,
+    );
+    item.iconPath = new vscode.ThemeIcon(node.buildKind === "library" ? "library" : "run");
+    item.contextValue = "kelp.project";
+    item.resourceUri = vscode.Uri.file(path.join(directory, "kelp.toml"));
+    item.project = { folder: node.folder, cwd: directory };
+    item.command = { command: "kelp.openManifest", title: "Open Manifest", arguments: [item] };
+    return item;
+  }
+}
+
+// A tree item, a bare { folder, cwd } pair, or nothing (use the active editor).
+function projectFrom(argument) {
+  if (argument && argument.project) return argument.project;
+  if (argument && argument.folder && argument.cwd) return argument;
+  return undefined;
+}
+
+async function guard(action) {
+  try {
+    return await action();
+  } catch (error) {
+    await vscode.window.showErrorMessage(error.message);
+  }
+}
+
+async function kelpManifestPath(argument) {
+  const project = projectFrom(argument) || (await projectContext());
+  return path.join(project.cwd, "kelp.toml");
+}
+
+async function openKelpManifest(argument) {
+  const document = await vscode.workspace.openTextDocument(
+    vscode.Uri.file(await kelpManifestPath(argument)),
+  );
+  return vscode.window.showTextDocument(document);
+}
+
+async function revealKelpProject(argument) {
+  return vscode.commands.executeCommand(
+    "revealFileInOS",
+    vscode.Uri.file(await kelpManifestPath(argument)),
+  );
+}
+
+// Resolves the configured artifact path for the project, which the status bar
+// and the `kelp.output` command both use.
+async function kelpOutputPath(argument) {
+  const project = projectFrom(argument) || (await projectContext());
+  const executable = vscode.workspace
+    .getConfiguration("kelp", project.folder.uri)
+    .get("path", "kelp");
+  const { stdout } = await execFile(executable, ["output"], {
+    cwd: project.cwd,
+    encoding: "utf8",
+    timeout: 10000,
+  });
+  const artifact = stdout.replace(/\r?\n$/, "");
+  if (!path.isAbsolute(artifact))
+    throw new Error("kelp output did not return an absolute path. Update Kelp.");
+  return artifact;
+}
+
+let kelpChannel;
+function kelpOutputChannel() {
+  if (!kelpChannel) kelpChannel = vscode.window.createOutputChannel("Kelp");
+  return kelpChannel;
+}
+
+async function showKelpOutput(argument) {
+  const artifact = await kelpOutputPath(argument);
+  kelpOutputChannel().appendLine(artifact);
+  await vscode.env?.clipboard?.writeText?.(artifact);
+  await vscode.window.showInformationMessage(`Kelp output: ${artifact}`);
+  return artifact;
+}
+
+// Resolves a `path` dependency or a `members` entry in kelp.toml to the target
+// project's manifest so navigation follows the local subproject graph.
+async function provideKelpDefinition(document, position) {
+  const line = document.lineAt(position.line).text;
+  const assignment = line.match(/^\s*([A-Za-z][A-Za-z0-9-]*)\s*=/);
+  if (!assignment) return undefined;
+  const section = kelpSectionAt(document.getText(), position.line);
+  const isMember = section === "workspace" && assignment[1] === "members";
+  const isDependencyPath = section === "dependencies" && assignment[1] === "path";
+  if (!isMember && !isDependencyPath) return undefined;
+  for (const match of line.matchAll(/"([^"]*)"/g)) {
+    const start = match.index + 1;
+    if (position.character < start || position.character > start + match[1].length) continue;
+    const manifest = path.resolve(path.dirname(document.uri.fsPath), match[1], "kelp.toml");
+    try {
+      await fs.access(manifest);
+    } catch (error) {
+      return undefined;
+    }
+    return new vscode.Location(vscode.Uri.file(manifest), new vscode.Position(0, 0));
+  }
+  return undefined;
+}
+
+const kelpTaskDefinitions = [
+  ["check", "Kelp: Check", "Build"],
+  ["build", "Kelp: Compile", "Build"],
+  ["run", "Kelp: Run", undefined],
+  ["test", "Kelp: Test", "Test"],
+  ["package", "Kelp: Package", "Build"],
+];
+
+const kelpTaskProvider = {
+  provideTasks() {
+    const groups = vscode.TaskGroup || {};
+    return (vscode.workspace.workspaceFolders || []).flatMap((folder) =>
+      kelpTaskDefinitions.map(([command, label, group]) => {
+        const executable = vscode.workspace
+          .getConfiguration("kelp", folder.uri)
+          .get("path", "kelp");
+        const execution = new vscode.ProcessExecution(executable, [command], {
+          cwd: folder.uri.fsPath,
+        });
+        const task = new vscode.Task(
+          { type: "kelp", command },
+          folder,
+          label,
+          "kelp",
+          execution,
+          "$kelyra",
+        );
+        if (group && groups[group]) task.group = groups[group];
+        return task;
+      }),
+    );
+  },
+  resolveTask() {
+    return undefined;
+  },
+};
+
+let kelpStatus;
+async function refreshKelpStatus() {
+  if (!kelpStatus) return;
+  try {
+    const artifact = await kelpOutputPath();
+    kelpStatus.text = `$(file-binary) ${path.basename(artifact)}`;
+    kelpStatus.tooltip = `${artifact}\nClick to show and copy the path.`;
+    kelpStatus.command = "kelp.output";
+  } catch (error) {
+    kelpStatus.text = "$(tools) Kelp";
+    kelpStatus.tooltip = "Kelp project commands";
+    kelpStatus.command = "kelp.build";
+  }
+  kelpStatus.show();
+}
+
 async function projectContext() {
   if (!vscode.workspace.isTrusted) throw new Error("Trust this workspace before running Kelp.");
   const document = vscode.window.activeTextEditor?.document;
@@ -691,6 +1063,7 @@ async function projectContext() {
 }
 
 async function runKelp(command, { wait = false, project, args = [] } = {}) {
+  if (!vscode.workspace.isTrusted) throw new Error("Trust this workspace before running Kelp.");
   const { folder, cwd } = project || await projectContext();
   const executable = vscode.workspace.getConfiguration("kelp", folder.uri).get("path", "kelp");
   const executionOptions = new vscode.ProcessExecution(executable, [command, ...args], {
@@ -722,8 +1095,8 @@ async function runKelp(command, { wait = false, project, args = [] } = {}) {
   }
 }
 
-async function debugKelp() {
-  const project = await projectContext();
+async function debugKelp(argument) {
+  const project = projectFrom(argument) || await projectContext();
   if (!vscode.extensions.getExtension("ms-vscode.cpptools"))
     throw new Error("Install Microsoft's C/C++ extension (ms-vscode.cpptools) to connect VS Code to local GDB.");
   const settings = vscode.workspace.getConfiguration("kelp", project.folder.uri);
@@ -807,6 +1180,11 @@ async function startLanguageServer() {
 }
 
 async function activate(context) {
+  const projects = new KelpProjectTreeProvider();
+  kelpStatus = vscode.window.createStatusBarItem(
+    (vscode.StatusBarAlignment && vscode.StatusBarAlignment.Left) || 1,
+    100,
+  );
   context.subscriptions.push(
     vscode.languages.registerDocumentFormattingEditProvider("kelyra", {
       provideDocumentFormattingEdits: format,
@@ -833,6 +1211,11 @@ async function activate(context) {
     vscode.languages.registerCompletionItemProvider("kelp", {
       provideCompletionItems: provideKelpCompletions,
     }),
+    vscode.languages.registerDefinitionProvider("kelp", {
+      provideDefinition: provideKelpDefinition,
+    }),
+    vscode.tasks.registerTaskProvider("kelp", kelpTaskProvider),
+    vscode.window.registerTreeDataProvider("kelp.projects", projects),
     vscode.window.registerTreeDataProvider("kelp.actions", {
       getChildren: () => kelpActions,
       getTreeItem: ([label, command, icon]) => {
@@ -842,19 +1225,33 @@ async function activate(context) {
         return item;
       },
     }),
+    kelpStatus,
   );
   for (const command of ["format", "check", "build", "debug", "run", "test", "package", "members"])
     context.subscriptions.push(
-      vscode.commands.registerCommand(`kelp.${command}`, async () => {
+      vscode.commands.registerCommand(`kelp.${command}`, async (argument) => {
         try {
           if (command === "format") return await formatKelp();
-          if (command === "debug") return await debugKelp();
-          return await runKelp(command);
+          const project = projectFrom(argument);
+          if (command === "debug") return await debugKelp(project);
+          return await runKelp(command, { project });
         } catch (error) {
           await vscode.window.showErrorMessage(error.message);
         }
       }),
     );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("kelp.refreshProjects", () => projects.refresh()),
+    vscode.commands.registerCommand("kelp.openManifest", (argument) =>
+      guard(async () => openKelpManifest(argument)),
+    ),
+    vscode.commands.registerCommand("kelp.revealProject", (argument) =>
+      guard(async () => revealKelpProject(argument)),
+    ),
+    vscode.commands.registerCommand("kelp.output", (argument) =>
+      guard(async () => showKelpOutput(argument)),
+    ),
+  );
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument((document) => {
       if (document.languageId === "kelyra") void startLanguageServer();
@@ -862,6 +1259,7 @@ async function activate(context) {
     vscode.workspace.onDidSaveTextDocument((document) => {
       if (document.languageId === "kelyra") invalidateKelyraIndex();
     }),
+    vscode.workspace.onDidChangeActiveTextEditor(() => void refreshKelpStatus()),
     vscode.workspace.onDidChangeConfiguration(async (event) => {
       if (!event.affectsConfiguration("kelyra.languageServer.path")) return;
       if (client) {
@@ -874,6 +1272,7 @@ async function activate(context) {
   );
   if (vscode.workspace.textDocuments.some(({ languageId }) => languageId === "kelyra"))
     await startLanguageServer();
+  void refreshKelpStatus();
 }
 
 async function deactivate() {
@@ -890,8 +1289,16 @@ module.exports = {
   formatKelp,
   kelpActions,
   kelpFields,
+  kelpOutputPath,
+  kelpProjectTree,
+  kelpTaskProvider,
   languageKeywords,
+  parseKelpManifest,
+  parseKelpMembers,
+  projectFrom,
   runKelp,
+  scanKelpProjects,
+  showKelpOutput,
   documentAnnotations,
   format,
   kelpFieldAt,
@@ -901,6 +1308,7 @@ module.exports = {
   kelyraSymbolAt,
   parseKelyraModule,
   provideKelpCompletions,
+  provideKelpDefinition,
   provideKelyraCompletions,
   provideKelyraFoldingRanges,
   provideKelyraHover,

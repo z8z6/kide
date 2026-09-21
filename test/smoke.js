@@ -2,6 +2,7 @@
 
 const assert = require("node:assert");
 const fs = require("node:fs");
+const os = require("node:os");
 const Module = require("node:module");
 const path = require("node:path");
 
@@ -40,7 +41,8 @@ assert.equal(manifest.contributes.languages[0].extensions[0], ".kly");
 assert.equal(manifest.contributes.languages[1].filenames[0], "kelp.toml");
 assert.equal(kelpGrammar.scopeName, "source.kelp.toml");
 assert.equal(manifest.contributes.viewsContainers.activitybar[0].id, "kelp");
-assert.equal(manifest.contributes.views.kelp[0].id, "kelp.actions");
+assert.equal(manifest.contributes.views.kelp[0].id, "kelp.projects");
+assert.equal(manifest.contributes.views.kelp[1].id, "kelp.actions");
 assert.deepEqual(themes.map(({ label }) => label), ["Kelyra Dark", "Kelyra Light"]);
 assert.deepEqual(themes.map(({ uiTheme }) => uiTheme), ["vs-dark", "vs"]);
 for (const { contents } of themes) {
@@ -157,6 +159,17 @@ Module._load = function (request, parent, isMain) {
         }
       },
       FoldingRangeKind: { Comment: 1, Imports: 2, Region: 3 },
+      Position: class Position {
+        constructor(line, character) {
+          Object.assign(this, { line, character });
+        }
+      },
+      Uri: { file: (fsPath) => ({ scheme: "file", fsPath }) },
+      Location: class Location {
+        constructor(uri, range) {
+          Object.assign(this, { uri, range });
+        }
+      },
     };
   }
   return originalLoad(request, parent, isMain);
@@ -168,16 +181,21 @@ const {
   format,
   kelpFieldAt,
   kelpFields,
+  kelpProjectTree,
   kelpSectionAt,
   kelyraParameterHints,
   kelyraSymbolAt,
   languageKeywords,
+  parseKelpManifest,
+  parseKelpMembers,
   parseKelyraModule,
   provideKelpCompletions,
+  provideKelpDefinition,
   provideKelyraCompletions,
   provideKelyraFoldingRanges,
   provideKelyraHover,
   provideKelyraInlayHints,
+  scanKelpProjects,
 } = require("../extension.js");
 const kelp = "[build]\nsafe-level = 1\n\n[dependencies.kstd]\nrepository = \"git@example\"\n";
 assert.equal(kelpSectionAt(kelp, 3), "dependencies");
@@ -207,8 +225,27 @@ for (const annotation of ["@target", "@repeatable", "@retention", "@route"])
   assert.ok(completions.some(({ label, documentation }) => label === annotation && documentation));
 assert.match(provideKelyraHover(document, { line: 2, character: 3 }).contents, /User-defined/);
 assert.match(provideKelyraHover(document, { line: 3, character: 12 }).contents, /Pointer-sized/);
-assert.equal(manifest.version, "0.6.0");
+assert.equal(manifest.version, "0.7.0");
 assert.ok(manifest.contributes.commands.some(({ command }) => command === "kelp.members"));
+assert.ok(manifest.contributes.commands.some(({ command }) => command === "kelp.output"));
+assert.ok(manifest.activationEvents.includes("onView:kelp.projects"));
+assert.equal(manifest.contributes.taskDefinitions[0].type, "kelp");
+assert.equal(
+  manifest.contributes.configurationDefaults["[kelyra]"]["editor.defaultFormatter"],
+  "z8z6.kelyra",
+);
+assert.equal(manifest.contributes.configurationDefaults["[kelyra]"]["editor.formatOnSave"], true);
+assert.ok(
+  manifest.contributes.menus["view/title"].some(
+    ({ command, when }) => command === "kelp.refreshProjects" && when === "view == kelp.projects",
+  ),
+);
+assert.ok(
+  manifest.contributes.menus["view/item/context"].length > 0 &&
+    manifest.contributes.menus["view/item/context"].every(({ when }) =>
+      when.includes("viewItem == kelp.project"),
+    ),
+);
 assert.equal(manifest.contributes.problemMatchers[0].name, "kelyra");
 assert.match(
   "src/main.kly:3:7: error: type mismatch",
@@ -384,3 +421,91 @@ format(
       );
     });
   });
+
+// The Kelp project view parses `kelp members`, nests members by directory, and
+// falls back to scanning manifests when the executable is unavailable.
+assert.deepEqual(
+  parseKelpMembers("app app executable build/app\n. - workspace -\nlibs/math math library build/math.o\n"),
+  [
+    { dir: "app", name: "app", buildKind: "executable", output: "build/app" },
+    { dir: "libs/math", name: "math", buildKind: "library", output: "build/math.o" },
+  ],
+);
+const parsed = parseKelpManifest(
+  '[project]\nname = "app"\nentry = "src/main.kly"\n\n' +
+    '[workspace]\nmembers = ["libs/math"]\n\n[build]\nkind = "library"\n',
+);
+assert.ok(parsed.hasProject);
+assert.equal(parsed.name, "app");
+assert.equal(parsed.entry, "src/main.kly");
+assert.equal(parsed.buildKind, "library");
+assert.deepEqual(parsed.members, ["libs/math"]);
+assert.equal(parsed.output, "build/app.o"); // The default output follows the kind.
+assert.equal(parseKelpManifest("[workspace]\nmembers = []\n").hasProject, false);
+
+const tree = kelpProjectTree([
+  { dir: ".", name: "root", buildKind: "executable", output: "build/root" },
+  { dir: "libs/math", name: "math", buildKind: "library", output: "build/math.o" },
+  { dir: "app", name: "app", buildKind: "executable", output: "build/app" },
+]);
+assert.deepEqual(
+  tree.map(({ type, label }) => [type, label]),
+  [["directory", "libs"], ["project", "app"], ["project", "root"]],
+);
+assert.equal(tree[0].children[0].relDir, "libs/math");
+assert.equal(tree[0].children[0].buildKind, "library");
+assert.equal(tree[0].children[0].output, "build/math.o");
+
+const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kide-projects-"));
+fs.mkdirSync(path.join(projectRoot, "libs/math"), { recursive: true });
+fs.mkdirSync(path.join(projectRoot, "app"), { recursive: true });
+fs.mkdirSync(path.join(projectRoot, "untracked"), { recursive: true });
+fs.writeFileSync(
+  path.join(projectRoot, "kelp.toml"),
+  '[workspace]\nmembers = ["libs/math", "app"]\n',
+);
+fs.writeFileSync(
+  path.join(projectRoot, "libs/math/kelp.toml"),
+  '[project]\nname = "math"\nentry = "src/math.kly"\n\n[build]\nkind = "library"\n',
+);
+fs.writeFileSync(
+  path.join(projectRoot, "app/kelp.toml"),
+  '[project]\nname = "app"\nentry = "src/main.kly"\n\n' +
+    '[dependencies.math]\npath = "../libs/math"\n',
+);
+fs.writeFileSync(
+  path.join(projectRoot, "untracked/kelp.toml"),
+  '[project]\nname = "untracked"\nentry = "src/main.kly"\n',
+);
+scanKelpProjects(projectRoot)
+  .then(async (projects) => {
+    // Only declared members are discovered; the workspace root is a container.
+    assert.deepEqual(
+      projects.map(({ dir, name, buildKind }) => [dir, name, buildKind]).sort(),
+      [
+        ["app", "app", "executable"],
+        ["libs/math", "math", "library"],
+      ],
+    );
+    const consumer = {
+      uri: { scheme: "file", fsPath: path.join(projectRoot, "app/kelp.toml") },
+      getText: () => '[dependencies.math]\npath = "../libs/math"\n',
+      lineAt: () => ({ text: 'path = "../libs/math"' }),
+    };
+    const definition = await provideKelpDefinition(consumer, { line: 1, character: 12 });
+    assert.equal(definition.uri.fsPath, path.join(projectRoot, "libs/math/kelp.toml"));
+    // The target is the start of the manifest, given as a Position.
+    assert.equal(definition.range.line, 0);
+    assert.equal(await provideKelpDefinition(consumer, { line: 1, character: 2 }), undefined);
+    const members = {
+      uri: { scheme: "file", fsPath: path.join(projectRoot, "kelp.toml") },
+      getText: () => '[workspace]\nmembers = ["app", "missing"]\n',
+      lineAt: () => ({ text: 'members = ["app", "missing"]' }),
+    };
+    assert.equal(
+      (await provideKelpDefinition(members, { line: 1, character: 13 })).uri.fsPath,
+      path.join(projectRoot, "app/kelp.toml"),
+    );
+    assert.equal(await provideKelpDefinition(members, { line: 1, character: 22 }), undefined);
+  })
+  .finally(() => fs.rmSync(projectRoot, { recursive: true, force: true }));

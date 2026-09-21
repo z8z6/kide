@@ -33,6 +33,22 @@ contributed problem matcher, so `kelyra` diagnostics also appear in the
 Problems panel.
 **Format File** (also in the editor title bar) formats the current `.kly` document
 using its registered formatter, preserving VS Code's undo and unsaved edits.
+`[kelyra]` files default to this formatter and to format-on-save.
+
+### Projects view
+
+The **Kelp** activity bar has a **Projects** view listing the workspace and its
+subprojects. Member data comes from `kelp members`, so the tree shows each
+project's build kind and output artifact; when the executable is unavailable the
+view falls back to scanning `kelp.toml` manifests, following `[workspace]
+members` and nesting projects by directory. Right-click a project for check,
+build, run, debug, test, and package, to reveal its output path, or to open and
+reveal its manifest. The status bar shows the active project's artifact and
+copies the path when clicked, and **Kelp: Show Output Path** prints it to the
+Kelp output channel. Kelp also contributes `kelp` build tasks, so the commands
+appear in **Tasks: Run Task** and can be bound to `launch.json` pre-launch
+tasks. In `kelp.toml`, Go to Definition on a `[workspace] members` entry or a
+dependency `path` jumps to the referenced project's manifest.
 
 ### Local GDB debugging
 
@@ -61,7 +77,7 @@ See the [VS Code GDB configuration reference](https://code.visualstudio.com/docs
 
 ```sh
 npm test
-npx @vscode/vsce package
+vsce package
 ```
 
 Build `kelyra-ls` and `kelyra-format`, install the generated VSIX, then set
