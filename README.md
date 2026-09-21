@@ -20,11 +20,21 @@ Braces and block comments fold, and `kelp.toml` completes section headers.
 Parameter-name inlay hints appear at call sites: set
 `kelyra.inlayHints.parameterNames` to `literals` (default), `all`, or `off`.
 Hints for other modules come from indexing the workspace `.kly` files. Hints are
-styled like inline code: the bundled themes give them a distinct background and
-`[kelyra]` defaults them to a smaller, padded font, which you can change with
-`"[kelyra]": { "editor.inlayHints.fontSize": ... }`.
+styled like inline code: `[kelyra]` defaults them to a smaller, padded font
+(change it with `"[kelyra]": { "editor.inlayHints.fontSize": ... }`), and the
+bundled themes give them a code-span background. With any other color theme, add
+the same colors to your settings:
+
+```json
+"workbench.colorCustomizations": {
+  "editorInlayHint.parameterBackground": "#2E3440",
+  "editorInlayHint.parameterForeground": "#88C0D0"
+}
+```
+
 `.kly` and `kelp.toml` files have their own light and dark file icons, shown by
 the default file icon theme and by any theme that leaves the language to VS Code.
+
 Choose **Kelyra Dark** or **Kelyra Light** with **Preferences: Color Theme**.
 Both use VS Code's standard theme contribution, so users can override UI and
 syntax colors with `workbench.colorCustomizations` and
