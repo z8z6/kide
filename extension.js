@@ -138,6 +138,427 @@ function provideKelyraCompletions(document, position) {
   ];
 }
 
+// Names that are never the callee of a call expression.
+const kelyraControlNames = new Set([
+  "if", "while", "when", "meta", "asm", "fn", "init", "deinit", "return", "let",
+]);
+// Declarations whose following name is not a call target.
+const kelyraDeclarations = new Set(["fn", "annotation"]);
+
+// Tokenizes Kelyra source, skipping comments, and records byte offsets.
+function scanKelyra(text) {
+  const lineStarts = [0];
+  for (let index = 0; index < text.length; ++index)
+    if (text[index] === "\n") lineStarts.push(index + 1);
+  const positionAt = (offset) => {
+    let low = 0;
+    let high = lineStarts.length - 1;
+    while (low < high) {
+      const middle = (low + high + 1) >> 1;
+      if (lineStarts[middle] <= offset) low = middle;
+      else high = middle - 1;
+    }
+    return { line: low, character: offset - lineStarts[low] };
+  };
+  const tokens = [];
+  let index = 0;
+  while (index < text.length) {
+    const character = text[index];
+    const next = text[index + 1];
+    if (character === "/" && next === "/") {
+      while (index < text.length && text[index] !== "\n") ++index;
+      continue;
+    }
+    if (character === "/" && next === "*") {
+      let depth = 1;
+      index += 2;
+      while (index < text.length && depth > 0) {
+        if (text[index] === "/" && text[index + 1] === "*") {
+          ++depth;
+          index += 2;
+        } else if (text[index] === "*" && text[index + 1] === "/") {
+          --depth;
+          index += 2;
+        } else ++index;
+      }
+      continue;
+    }
+    if (character === '"') {
+      const start = index++;
+      while (index < text.length) {
+        if (text[index] === "\\") index += 2;
+        else if (text[index] === '"') { ++index; break; }
+        else ++index;
+      }
+      tokens.push({ kind: "string", text: text.slice(start, index), offset: start });
+      continue;
+    }
+    if (/[A-Za-z_]/.test(character)) {
+      const start = index;
+      while (index < text.length && /[A-Za-z0-9_]/.test(text[index])) ++index;
+      tokens.push({ kind: "name", text: text.slice(start, index), offset: start });
+      continue;
+    }
+    if (/[0-9]/.test(character)) {
+      const start = index;
+      while (index < text.length && /[0-9A-Za-z_.]/.test(text[index])) ++index;
+      tokens.push({ kind: "number", text: text.slice(start, index), offset: start });
+      continue;
+    }
+    if (/\s/.test(character)) { ++index; continue; }
+    tokens.push({ kind: "punct", text: character, offset: index });
+    ++index;
+  }
+  return { tokens, positionAt };
+}
+
+const kelyraParameterNames = (tokens, open) => {
+  const names = [];
+  let depth = 0;
+  let expectName = true;
+  for (let index = open; index < tokens.length; ++index) {
+    const token = tokens[index];
+    if (token.text === "(") { ++depth; continue; }
+    if (token.text === ")") {
+      --depth;
+      if (depth === 0) return { names, end: index };
+      continue;
+    }
+    if (token.text === "," && depth === 1) { expectName = true; continue; }
+    if (token.kind === "punct") continue;
+    if (depth === 1 && expectName && token.kind === "name") {
+      names.push(token.text);
+      expectName = false;
+    }
+  }
+  return { names: [], end: -1 };
+};
+
+// Collects module name, imports, function signatures, and class members.
+function parseKelyraTokens(tokens) {
+  const parsed = { module: "", imports: [], functions: new Map(), classes: new Map() };
+  for (let index = 0; index < tokens.length; ++index) {
+    const token = tokens[index];
+    if (token.kind !== "name") continue;
+    if (token.text === "module") {
+      const parts = [];
+      let cursor = index + 1;
+      while (cursor < tokens.length && tokens[cursor].kind === "name") {
+        parts.push(tokens[cursor].text);
+        if (tokens[cursor + 1]?.text !== ".") break;
+        cursor += 2;
+      }
+      parsed.module = parts.join(".");
+      continue;
+    }
+    if (token.text === "import") {
+      const parts = [];
+      let wildcard = false;
+      let cursor = index + 1;
+      while (cursor < tokens.length) {
+        if (tokens[cursor].kind === "name") { parts.push(tokens[cursor].text); ++cursor; continue; }
+        if (tokens[cursor].text === ".") {
+          if (tokens[cursor + 1]?.text === "*") wildcard = true;
+          cursor += 2;
+          continue;
+        }
+        break;
+      }
+      if (parts.length) parsed.imports.push({ name: parts.join("."), wildcard });
+      continue;
+    }
+    if (token.text === "class" && tokens[index + 1]?.kind === "name") {
+      const name = tokens[index + 1].text;
+      let open = index + 2;
+      while (open < tokens.length && tokens[open].text !== "{") ++open;
+      let depth = 0;
+      let close = tokens.length;
+      for (let cursor = open; cursor < tokens.length; ++cursor) {
+        if (tokens[cursor].text === "{") ++depth;
+        else if (tokens[cursor].text === "}" && --depth === 0) { close = cursor; break; }
+      }
+      const info = { init: undefined, methods: new Map() };
+      // Nested classes are not part of the language, so the body can be skipped.
+      for (let cursor = open + 1; cursor < close; ++cursor) {
+        const member = tokens[cursor];
+        if (member.text === "fn" && tokens[cursor + 1]?.kind === "name" &&
+            tokens[cursor + 2]?.text === "(") {
+          info.methods.set(tokens[cursor + 1].text, kelyraParameterNames(tokens, cursor + 2).names);
+        } else if (member.text === "init" && tokens[cursor + 1]?.text === "(") {
+          info.init = kelyraParameterNames(tokens, cursor + 1).names;
+        }
+      }
+      parsed.classes.set(name, info);
+      index = close;
+      continue;
+    }
+    if (token.text === "fn" && tokens[index + 1]?.kind === "name" &&
+        tokens[index + 2]?.text === "(") {
+      parsed.functions.set(tokens[index + 1].text, kelyraParameterNames(tokens, index + 2).names);
+    }
+  }
+  return parsed;
+}
+
+const parseKelyraModule = (text) => parseKelyraTokens(scanKelyra(text).tokens);
+
+function collectKelyraLocals(tokens) {
+  const locals = new Set();
+  for (let index = 0; index < tokens.length; ++index) {
+    if (tokens[index].text === "let") {
+      if (tokens[index + 1]?.kind === "name") locals.add(tokens[index + 1].text);
+      for (let cursor = index + 2; tokens[index + 1]?.text === "(" && cursor < tokens.length; ++cursor) {
+        if (tokens[cursor].text === ")") break;
+        if (tokens[cursor].kind === "name") locals.add(tokens[cursor].text);
+      }
+    }
+    if (tokens[index].text === "fn" && tokens[index + 1]?.kind === "name" &&
+        tokens[index + 2]?.text === "(")
+      for (const name of kelyraParameterNames(tokens, index + 2).names) locals.add(name);
+  }
+  return locals;
+}
+
+function collectKelyraCalls(tokens) {
+  const calls = [];
+  for (let index = 0; index < tokens.length; ++index) {
+    if (tokens[index].text !== "(") continue;
+    let cursor = index - 1;
+    if (cursor < 0 || tokens[cursor].kind !== "name") continue;
+    const chain = [tokens[cursor].text];
+    --cursor;
+    while (cursor >= 1 && tokens[cursor].text === "." && tokens[cursor - 1].kind === "name") {
+      chain.unshift(tokens[cursor - 1].text);
+      cursor -= 2;
+    }
+    const lead = tokens[cursor];
+    if (lead && kelyraDeclarations.has(lead.text)) continue;
+    if (chain.length === 1 && kelyraControlNames.has(chain[0])) continue;
+    const args = [];
+    let depth = 0;
+    let expectStart = false;
+    for (let scan = index; scan < tokens.length; ++scan) {
+      const token = tokens[scan];
+      if (token.text === "(") {
+        if (++depth === 1) expectStart = true;
+        continue;
+      }
+      if (token.text === ")") {
+        if (--depth === 0) break;
+        continue;
+      }
+      if (token.text === "," && depth === 1) { expectStart = true; continue; }
+      if (depth === 1 && expectStart) {
+        args.push({
+          offset: token.offset,
+          literal: token.kind !== "name" || token.text === "true" || token.text === "false",
+        });
+        expectStart = false;
+      }
+    }
+    calls.push({ chain, args });
+  }
+  return calls;
+}
+
+// Indexes every parsed module so calls can be resolved across the workspace.
+function buildKelyraIndex(parsedModules) {
+  const index = { modules: new Map(), functions: new Map(), methods: new Map(), classes: new Map() };
+  const push = (map, key, value) => {
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(value);
+  };
+  for (const parsed of parsedModules) {
+    if (parsed.module && !index.modules.has(parsed.module)) index.modules.set(parsed.module, parsed);
+    for (const [name, params] of parsed.functions)
+      push(index.functions, name, { params, module: parsed.module });
+    for (const [name, info] of parsed.classes) {
+      push(index.classes, name, { info, module: parsed.module });
+      for (const [method, params] of info.methods)
+        push(index.methods, method, { params, module: parsed.module, owner: name });
+    }
+  }
+  return index;
+}
+
+function resolveKelyraCall(call, current, index, locals) {
+  const { chain } = call;
+  if (chain.length === 1) {
+    const name = chain[0];
+    if (locals.has(name)) return undefined;
+    const own = current.functions.get(name);
+    if (own) return own;
+    const ownClass = current.classes.get(name);
+    if (ownClass && ownClass.init) return ownClass.init;
+    for (const imported of current.imports) {
+      if (!imported.wildcard) continue;
+      const target = index.modules.get(imported.name);
+      if (!target) continue;
+      const fn = target.functions.get(name);
+      if (fn) return fn;
+      const cls = target.classes.get(name);
+      if (cls && cls.init) return cls.init;
+    }
+    const functions = index.functions.get(name);
+    if (functions && functions.length === 1) return functions[0].params;
+    const classes = index.classes.get(name);
+    if (classes && classes.length === 1 && classes[0].info.init) return classes[0].info.init;
+    return undefined;
+  }
+  for (let length = chain.length - 1; length >= 1; --length) {
+    const target = index.modules.get(chain.slice(0, length).join("."));
+    if (!target) continue;
+    const rest = chain.slice(length);
+    if (rest.length === 1) {
+      const fn = target.functions.get(rest[0]);
+      if (fn) return fn;
+      const cls = target.classes.get(rest[0]);
+      if (cls && cls.init) return cls.init;
+    } else if (rest.length === 2) {
+      const cls = target.classes.get(rest[0]);
+      if (cls) return rest[1] === "init" ? cls.init : cls.methods.get(rest[1]);
+    }
+    return undefined;
+  }
+  const method = chain[chain.length - 1];
+  if (method === "init" || method === "deinit") return undefined;
+  const methods = index.methods.get(method);
+  return methods && methods.length === 1 ? methods[0].params : undefined;
+}
+
+// Returns `{ offset, name }` for every argument that should show its parameter
+// name. Literal-only mode keeps hints on numbers, strings, and booleans.
+function kelyraParameterHints(text, index, mode) {
+  if (mode === "off") return [];
+  const { tokens } = scanKelyra(text);
+  const current = parseKelyraTokens(tokens);
+  const locals = collectKelyraLocals(tokens);
+  const hints = [];
+  for (const call of collectKelyraCalls(tokens)) {
+    const params = resolveKelyraCall(call, current, index, locals);
+    if (!params || params.length !== call.args.length) continue;
+    for (let position = 0; position < call.args.length; ++position) {
+      const argument = call.args[position];
+      if (mode === "literals" && !argument.literal) continue;
+      hints.push({ offset: argument.offset, name: params[position] });
+    }
+  }
+  return hints;
+}
+
+function provideKelyraFoldingRanges(document) {
+  const text = document.getText();
+  const { positionAt } = scanKelyra(text);
+  const ranges = [];
+  const braces = [];
+  let blockStart = -1;
+  let blockDepth = 0;
+  let inString = false;
+  let escaped = false;
+  let inLineComment = false;
+  for (let index = 0; index < text.length; ++index) {
+    const character = text[index];
+    const next = text[index + 1];
+    if (inLineComment) {
+      if (character === "\n") inLineComment = false;
+      continue;
+    }
+    if (blockDepth > 0) {
+      if (character === "/" && next === "*") { ++blockDepth; ++index; continue; }
+      if (character === "*" && next === "/") {
+        if (--blockDepth === 0) {
+          const start = positionAt(blockStart).line;
+          const end = positionAt(index).line;
+          if (end > start)
+            ranges.push(new vscode.FoldingRange(start, end, vscode.FoldingRangeKind.Comment));
+        }
+        ++index;
+        continue;
+      }
+      continue;
+    }
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === "/" && next === "/") { inLineComment = true; ++index; continue; }
+    if (character === "/" && next === "*") { blockDepth = 1; blockStart = index; ++index; continue; }
+    if (character === '"') { inString = true; continue; }
+    if (character === "{") braces.push(index);
+    else if (character === "}" && braces.length) {
+      const start = positionAt(braces.pop()).line;
+      const end = positionAt(index).line;
+      if (end > start) ranges.push(new vscode.FoldingRange(start, end));
+    }
+  }
+  return ranges;
+}
+
+let kelyraIndexPromise;
+
+function invalidateKelyraIndex() {
+  kelyraIndexPromise = undefined;
+}
+
+// Indexes open documents first so unsaved edits win over the files on disk.
+async function loadKelyraIndex() {
+  const modules = new Map();
+  const extras = [];
+  const record = (text) => {
+    const parsed = parseKelyraModule(text);
+    if (parsed.module) {
+      if (!modules.has(parsed.module)) modules.set(parsed.module, parsed);
+    } else {
+      extras.push(parsed);
+    }
+  };
+  for (const document of vscode.workspace.textDocuments)
+    if (document.languageId === "kelyra") record(document.getText());
+  try {
+    const files = await vscode.workspace.findFiles(
+      "**/*.kly",
+      "**/{node_modules,build,.kelp,.git}/**",
+    );
+    for (const file of files)
+      record(Buffer.from(await vscode.workspace.fs.readFile(file)).toString("utf8"));
+  } catch {
+    // A missing workspace or unreadable file only limits cross-module hints.
+  }
+  return buildKelyraIndex([...modules.values(), ...extras]);
+}
+
+async function provideKelyraInlayHints(document, range) {
+  const mode = vscode.workspace
+    .getConfiguration("kelyra")
+    .get("inlayHints.parameterNames", "literals");
+  if (mode === "off") return [];
+  if (!kelyraIndexPromise) kelyraIndexPromise = loadKelyraIndex();
+  const index = await kelyraIndexPromise;
+  const text = document.getText();
+  const { positionAt } = scanKelyra(text);
+  const hints = [];
+  for (const hint of kelyraParameterHints(text, index, mode)) {
+    const position = positionAt(hint.offset);
+    if (
+      position.line < range.start.line ||
+      position.line > range.end.line ||
+      (position.line === range.start.line && position.character < range.start.character) ||
+      (position.line === range.end.line && position.character > range.end.character)
+    )
+      continue;
+    const item = new vscode.InlayHint(
+      position,
+      `${hint.name}:`,
+      vscode.InlayHintKind.Parameter,
+    );
+    item.paddingRight = true;
+    hints.push(item);
+  }
+  return hints;
+}
+
 const kelpFields = {
   project: [
     ["name", '"${1:app}"', "Project name."],
@@ -200,12 +621,40 @@ function kelpFieldAt(text, line, character) {
   );
 }
 
+const kelpSections = [
+  ["project", "Project name, version, and entry source."],
+  ["build", "Compiler, target kind, output, optimization, and C options."],
+  ["workspace", "Subproject member directories."],
+  ["package", "Source archive output."],
+  ["test", "Additional test sources."],
+  ["dependencies.<name>", "Git or local path dependency."],
+];
+
 function provideKelpHover(document, position) {
   const field = kelpFieldAt(document.getText(), position.line, position.character);
   return field ? new vscode.Hover(`**${field[0]}**\n\n${field[2]}`) : undefined;
 }
 
 function provideKelpCompletions(document, position) {
+  const prefix = document.lineAt(position.line).text.slice(0, position.character);
+  const header = prefix.match(/^(\s*)\[([A-Za-z0-9_.]*)$/);
+  if (header) {
+    const range = new vscode.Range(
+      position.line,
+      header[1].length + 1,
+      position.line,
+      position.character,
+    );
+    return kelpSections.map(([name, documentation]) => {
+      const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Module);
+      item.insertText = new vscode.SnippetString(
+        name === "dependencies.<name>" ? "dependencies.${1:name}]" : `${name}]`,
+      );
+      item.range = range;
+      item.documentation = documentation;
+      return item;
+    });
+  }
   return (kelpFields[kelpSectionAt(document.getText(), position.line)] || []).map(
     ([name, value, documentation]) => {
       const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Property);
@@ -369,6 +818,12 @@ async function activate(context) {
       { provideCompletionItems: provideKelyraCompletions },
       "@",
     ),
+    vscode.languages.registerFoldingRangeProvider("kelyra", {
+      provideFoldingRanges: provideKelyraFoldingRanges,
+    }),
+    vscode.languages.registerInlayHintsProvider("kelyra", {
+      provideInlayHints: provideKelyraInlayHints,
+    }),
   );
   context.subscriptions.push(
     vscode.languages.registerHoverProvider("kelp", {
@@ -402,6 +857,9 @@ async function activate(context) {
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument((document) => {
       if (document.languageId === "kelyra") void startLanguageServer();
+    }),
+    vscode.workspace.onDidSaveTextDocument((document) => {
+      if (document.languageId === "kelyra") invalidateKelyraIndex();
     }),
     vscode.workspace.onDidChangeConfiguration(async (event) => {
       if (!event.affectsConfiguration("kelyra.languageServer.path")) return;
@@ -437,8 +895,13 @@ module.exports = {
   format,
   kelpFieldAt,
   kelpSectionAt,
+  buildKelyraIndex,
+  kelyraParameterHints,
   kelyraSymbolAt,
+  parseKelyraModule,
   provideKelpCompletions,
   provideKelyraCompletions,
+  provideKelyraFoldingRanges,
   provideKelyraHover,
+  provideKelyraInlayHints,
 };

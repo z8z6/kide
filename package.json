@@ -2,7 +2,7 @@
   "name": "kelyra",
   "displayName": "Kelyra",
   "description": "Kelyra language and Kelp project support",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "publisher": "z8z6",
   "license": "MIT",
   "repository": {
@@ -68,6 +68,26 @@
         "path": "./syntaxes/kelp.tmLanguage.json"
       }
     ],
+    "snippets": [
+      {
+        "language": "kelyra",
+        "path": "./snippets/kelyra.json"
+      },
+      {
+        "language": "kelp",
+        "path": "./snippets/kelp.json"
+      }
+    ],
+    "configurationDefaults": {
+      "[kelyra]": {
+        "editor.tabSize": 2,
+        "editor.insertSpaces": true
+      },
+      "[kelp]": {
+        "editor.tabSize": 2,
+        "editor.insertSpaces": true
+      }
+    },
     "themes": [
       {
         "label": "Kelyra Dark",
@@ -228,6 +248,16 @@
           "items": { "type": "string" },
           "default": [],
           "description": "Arguments passed to the program by Kelp: Debug."
+        },
+        "kelyra.inlayHints.parameterNames": {
+          "type": "string",
+          "enum": [
+            "off",
+            "literals",
+            "all"
+          ],
+          "default": "literals",
+          "markdownDescription": "Show parameter name inlay hints at call sites: `off`, `literals` (only literal arguments), or `all`. Workspace modules are indexed to resolve signatures."
         }
       }
     }

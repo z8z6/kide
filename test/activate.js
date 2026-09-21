@@ -6,6 +6,7 @@ const Module = require("node:module");
 const subscriptions = [];
 const commands = new Map();
 const disposables = [];
+const providers = [];
 let openListener;
 let configurationListener;
 const starts = [];
@@ -21,6 +22,14 @@ const vscode = {
     registerDocumentFormattingEditProvider: () => disposable(),
     registerHoverProvider: () => disposable(),
     registerCompletionItemProvider: () => disposable(),
+    registerFoldingRangeProvider: (language) => {
+      providers.push(`folding:${language}`);
+      return disposable();
+    },
+    registerInlayHintsProvider: (language) => {
+      providers.push(`inlay:${language}`);
+      return disposable();
+    },
   },
   window: {
     registerTreeDataProvider: () => disposable(),
@@ -41,6 +50,7 @@ const vscode = {
       openListener = listener;
       return disposable();
     },
+    onDidSaveTextDocument: () => disposable(),
     onDidChangeConfiguration: (listener) => {
       configurationListener = listener;
       return disposable();
@@ -93,6 +103,7 @@ async function test() {
   await activate({ subscriptions: { push: (...items) => subscriptions.push(...items) } });
   for (const command of ["kelp.format", "kelp.check", "kelp.build", "kelp.members"])
     assert.ok(commands.has(command), command);
+  assert.deepEqual(providers, ["folding:kelyra", "inlay:kelyra"]);
   assert.equal(starts.length, 0); // No Kelyra document is open yet.
 
   openListener({ languageId: "kelyra" });

@@ -14,6 +14,12 @@ keywords and annotations declared in the current document are also suggested.
 Classes use `class`, `init`, `deinit`, and the implicit `this` pointer. These
 keywords have highlighting and inline help; `kelyra-ls` supplies class member
 completion, hover, and definition navigation.
+Snippets cover functions, classes, control flow, assembly, annotations, and
+Kelp manifests, and `[kelyra]`/`[kelp]` default to two-space indentation.
+Braces and block comments fold, and `kelp.toml` completes section headers.
+Parameter-name inlay hints appear at call sites: set
+`kelyra.inlayHints.parameterNames` to `literals` (default), `all`, or `off`.
+Hints for other modules come from indexing the workspace `.kly` files.
 Choose **Kelyra Dark** or **Kelyra Light** with **Preferences: Color Theme**.
 Both use VS Code's standard theme contribution, so users can override UI and
 syntax colors with `workbench.colorCustomizations` and
