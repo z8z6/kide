@@ -6,7 +6,15 @@ Kelyra editor support for VS Code and JetBrains IDEs.
 
 The extension provides `.kly` syntax highlighting, comments, brackets,
 indentation, document formatting through `kelyra-format`, and hover,
-completion, diagnostics, and definition navigation through `kelyra-ls`.
+completion, diagnostics, definition, and reference navigation through
+`kelyra-ls`.
+Go to Definition follows whatever the compiler can see: workspace members,
+imported modules (including dependency sources under `.kelp/dependencies` and
+local path dependencies), class members, and C declarations from
+`import c "header.h"`, where the header string itself opens the header.
+Find All References covers locals in their scope, class fields and methods
+(including accesses through pointers and `this`), functions across the
+workspace, and every import of a module.
 Highlighting covers annotations, compile-time `when`/`meta` reflection,
 prefix pointers, inline assembly chains, and wildcard imports.
 Functions, module paths, variables, parameters, class fields, and member
