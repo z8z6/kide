@@ -57,8 +57,28 @@ const builtinAnnotations = {
 const classKeywords = {
   class: "Value type with fields, methods, direct construction and scope-based RAII destruction.",
   this: "Implicit pointer to the current class instance. Optional for unambiguous member access; use this.field when a parameter or local shadows a field.",
-  init: "Constructor. Initializes each field once in declaration order before ordinary statements.",
+  init: "Constructor. Initializes each field once in declaration order before ordinary statements. A class without init gets a generated no-argument constructor.",
   deinit: "Destructor. Runs automatically on normal scope exits, followed by class fields in reverse order. Cannot be called explicitly.",
+};
+
+const languageKeywords = {
+  let: "Declares a local with a type, an initial value, or both.",
+  fn: "Declares a function.",
+  pub: "Exports a declaration to importing modules.",
+  module: "Declares this file's module.",
+  import: "Loads a module. Add `.*` to call its public functions unqualified, or use `import c \"header.h\"` for C headers.",
+  annotation: "Declares a compile-time annotation.",
+  if: "Conditional branch; the braces are required.",
+  else: "Alternative branch of an if.",
+  while: "Repeats a block while the condition holds.",
+  return: "Returns zero or more values and runs the pending scope cleanups.",
+  break: "Leaves the innermost loop, destroying its locals first.",
+  continue: "Jumps to the next iteration, destroying loop locals first.",
+  when: "Compile-time conditional; only the selected branch is resolved.",
+  meta: "Compile-time reflection operator, as in `meta(target)`.",
+  asm: "Inline assembly block with `.in`, `.out`, and `.op` chains.",
+  true: "Boolean true.",
+  false: "Boolean false.",
 };
 
 function documentAnnotations(text) {
@@ -81,6 +101,8 @@ function provideKelyraHover(document, position) {
   const name = symbol.startsWith("@") ? symbol.slice(1) : symbol;
   if (kelyraTypes[name]) return new vscode.Hover(`**${name}**\n\n${kelyraTypes[name]}`);
   if (classKeywords[name]) return new vscode.Hover(`**${name}**\n\n${classKeywords[name]}`);
+  if (languageKeywords[name])
+    return new vscode.Hover(`**${name}**\n\n${languageKeywords[name]}`);
   if (builtinAnnotations[name])
     return new vscode.Hover(`**@${name}**\n\n${builtinAnnotations[name]}`);
   if (documentAnnotations(document.getText()).includes(name))
@@ -95,11 +117,13 @@ function provideKelyraCompletions(document, position) {
     (name) => [name, "User-defined annotation in this document."],
   )];
   return [
-    ...Object.entries(classKeywords).map(([name, documentation]) => {
-      const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Keyword);
-      item.documentation = documentation;
-      return item;
-    }),
+    ...[...Object.entries(classKeywords), ...Object.entries(languageKeywords)].map(
+      ([name, documentation]) => {
+        const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Keyword);
+        item.documentation = documentation;
+        return item;
+      },
+    ),
     ...Object.entries(kelyraTypes).map(([name, documentation]) => {
       const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Class);
       item.documentation = documentation;
@@ -122,17 +146,22 @@ const kelpFields = {
   ],
   build: [
     ["compiler", '"${1:kelyra}"', "Kelyra compiler executable."],
-    ["output", '"${1:build/app}"', "Executable output path."],
+    ["kind", '"${1|executable,library|}"', "Build target: `executable` links a program, `library` compiles a linked object."],
+    ["output", '"${1:build/app}"', "Artifact path: the executable or the library object."],
     ["optimization", "${1:0}", "Optimization level from 0 to 3."],
     ["safe-level", "${1:0}", "Kelyra runtime safety level."],
     ["c-sources", "[${1}]", "C source files compiled with the project."],
     ["c-args", "[${1}]", "Arguments forwarded to Clang."],
+  ],
+  workspace: [
+    ["members", "[${1}]", "Subproject directories, each with its own `kelp.toml`. Commands accept a member name or relative path."],
   ],
   package: [["output", '"${1:build/app-0.1.0.tar.gz}"', "Package archive path."]],
   test: [["sources", "[${1}]", "Additional Kelyra test sources."]],
   dependencies: [
     ["repository", '"${1:git@github.com:owner/repo.git}"', "Dependency Git repository."],
     ["revision", '"${1:main}"', "Optional Git revision."],
+    ["path", '"${1:../libs/math}"', "Local path dependency used in place; give either this or repository/revision."],
   ],
 };
 
@@ -143,6 +172,7 @@ const kelpActions = [
   ["Run", "kelp.run", "play"],
   ["Test", "kelp.test", "beaker"],
   ["Package", "kelp.package", "package"],
+  ["Members", "kelp.members", "list-unordered"],
   ["Variables", "workbench.debug.action.focusVariablesView", "symbol-variable"],
   ["Functions / Call Stack", "workbench.debug.action.focusCallStackView", "callstack"],
   ["Watch Expressions", "workbench.debug.action.focusWatchView", "eye"],
@@ -222,6 +252,7 @@ async function runKelp(command, { wait = false, project, args = [] } = {}) {
     command,
     "kelp",
     executionOptions,
+    "$kelyra",
   );
   if (!wait) return vscode.tasks.executeTask(task);
   let execution;
@@ -266,7 +297,6 @@ async function debugKelp() {
     ...(gdb === "gdb" ? {} : { miDebuggerPath: gdb }),
     stopAtEntry: true, externalConsole: false,
     internalConsoleOptions: "openOnSessionStart",
-    sourceFileMap: { [path.join(project.cwd, ".kelp", "stage")]: project.cwd },
     setupCommands: [{ text: "-enable-pretty-printing", ignoreFailures: true }],
   });
   if (!started) throw new Error("GDB debugging did not start. See the Debug Console for details.");
@@ -357,7 +387,7 @@ async function activate(context) {
       },
     }),
   );
-  for (const command of ["format", "check", "build", "debug", "run", "test", "package"])
+  for (const command of ["format", "check", "build", "debug", "run", "test", "package", "members"])
     context.subscriptions.push(
       vscode.commands.registerCommand(`kelp.${command}`, async () => {
         try {
@@ -372,6 +402,15 @@ async function activate(context) {
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument((document) => {
       if (document.languageId === "kelyra") void startLanguageServer();
+    }),
+    vscode.workspace.onDidChangeConfiguration(async (event) => {
+      if (!event.affectsConfiguration("kelyra.languageServer.path")) return;
+      if (client) {
+        await client.stop();
+        client = undefined;
+      }
+      if (vscode.workspace.textDocuments.some(({ languageId }) => languageId === "kelyra"))
+        await startLanguageServer();
     }),
   );
   if (vscode.workspace.textDocuments.some(({ languageId }) => languageId === "kelyra"))
@@ -391,12 +430,15 @@ module.exports = {
   debugKelp,
   formatKelp,
   kelpActions,
+  kelpFields,
+  languageKeywords,
   runKelp,
   documentAnnotations,
   format,
   kelpFieldAt,
   kelpSectionAt,
   kelyraSymbolAt,
+  provideKelpCompletions,
   provideKelyraCompletions,
   provideKelyraHover,
 };

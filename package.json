@@ -2,7 +2,7 @@
   "name": "kelyra",
   "displayName": "Kelyra",
   "description": "Kelyra language and Kelp project support",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "publisher": "z8z6",
   "license": "MIT",
   "repository": {
@@ -29,7 +29,7 @@
     }
   },
   "scripts": {
-    "test": "node --check extension.js && node test/smoke.js && node test/debug.js"
+    "test": "node --check extension.js && node test/smoke.js && node test/debug.js && node test/activate.js"
   },
   "contributes": {
     "breakpoints": [{ "language": "kelyra" }],
@@ -115,6 +115,26 @@
         "command": "kelp.package",
         "title": "Kelp: Package",
         "icon": "$(package)"
+      },
+      {
+        "command": "kelp.members",
+        "title": "Kelp: Members",
+        "icon": "$(list-unordered)"
+      }
+    ],
+    "problemMatchers": [
+      {
+        "name": "kelyra",
+        "owner": "kelyra",
+        "source": "kelyra",
+        "fileLocation": "auto",
+        "pattern": {
+          "regexp": "^(.*):(\\d+):(\\d+): error: (.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "message": 4
+        }
       }
     ],
     "viewsContainers": {
@@ -165,6 +185,11 @@
           "command": "kelp.package",
           "when": "view == kelp.actions",
           "group": "navigation@5"
+        },
+        {
+          "command": "kelp.members",
+          "when": "view == kelp.actions",
+          "group": "navigation@6"
         }
       ],
       "editor/title": [

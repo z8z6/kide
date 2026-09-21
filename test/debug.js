@@ -22,7 +22,7 @@ const vscode = {
   commands: { executeCommand: async (command) => commands.push(command) },
   debug: { startDebugging: async (scope, config) => { launches.push({ scope, config }); return started; } },
   ProcessExecution: class { constructor(executable, args, options) { Object.assign(this, { executable, args, options }); } },
-  Task: class { constructor(definition, scope, name, source, execution) { Object.assign(this, { definition, scope, name, source, execution }); } },
+  Task: class { constructor(definition, scope, name, source, execution, problemMatchers) { Object.assign(this, { definition, scope, name, source, execution, problemMatchers }); } },
   tasks: {
     onDidEndTaskProcess: (callback) => { listener = callback; return { dispose: () => { ++disposed; listener = undefined; } }; },
     executeTask: async (task) => {
@@ -62,6 +62,7 @@ async function test() {
   assert.equal(manifest.contributes.configuration.properties["kelp.debug.gdbPath"].default, "gdb");
   for (const command of ["focusVariablesView", "focusCallStackView", "focusWatchView", "focusRepl"])
     assert.ok(kelpActions.some(([, action]) => action === `workbench.debug.action.${command}`));
+  assert.ok(kelpActions.some(([label, action]) => label === "Members" && action === "kelp.members"));
   await formatKelp();
   assert.equal(commands.pop(), "editor.action.formatDocument");
   document.languageId = "kelp";
@@ -71,6 +72,8 @@ async function test() {
   assert.equal(disposed, 1);
   assert.deepEqual(tasks[0].execution.args, ["build", "--debug"]);
   assert.equal(tasks[0].execution.options.cwd, folder.uri.fsPath);
+  assert.equal(tasks[0].problemMatchers, "$kelyra");
+  assert.equal(tasks[0].source, "kelp");
   const { config, scope } = launches[0];
   assert.equal(scope, folder);
   assert.equal(config.type, "cppdbg");
@@ -79,6 +82,7 @@ async function test() {
   assert.equal(config.program, "/workspace/project/custom build/app");
   assert.deepEqual(config.args, ["two words"]);
   assert.equal(config.stopAtEntry, true);
+  assert.equal(config.sourceFileMap, undefined); // Kelp compiles in place.
   assert.deepEqual(commands, ["workbench.view.debug", "workbench.debug.action.focusRepl"]);
   assert.deepEqual(processes.map(({ args }) => args), [["--version"], ["output"]]);
   exitCode = 1;

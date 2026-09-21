@@ -9,8 +9,8 @@
     { "include": "#comments" },
     { "include": "#strings" },
     { "include": "#declarations" },
-    { "include": "#keywords" },
     { "include": "#types" },
+    { "include": "#keywords" },
     { "include": "#numbers" },
     { "include": "#annotations" },
     { "include": "#builtinMembers" },
@@ -92,7 +92,7 @@
         },
         {
           "name": "storage.modifier.kelyra",
-          "match": "\\b(let|pub|extern|parallel|meta)\\b"
+          "match": "\\b(let|pub|extern|parallel|meta|var)\\b"
         },
         {
           "name": "constant.language.boolean.kelyra",

@@ -10,7 +10,7 @@ completion, diagnostics, and definition navigation through `kelyra-ls`.
 Highlighting covers annotations, compile-time `when`/`meta` reflection,
 prefix pointers, inline assembly chains, and wildcard imports.
 Built-in types and annotations have documented completion and hover support;
-annotations declared in the current document are also suggested.
+keywords and annotations declared in the current document are also suggested.
 Classes use `class`, `init`, `deinit`, and the implicit `this` pointer. These
 keywords have highlighting and inline help; `kelyra-ls` supplies class member
 completion, hover, and definition navigation.
@@ -19,8 +19,12 @@ Both use VS Code's standard theme contribution, so users can override UI and
 syntax colors with `workbench.colorCustomizations` and
 `editor.tokenColorCustomizations`, including theme-specific `[Kelyra Dark]`
 or `[Kelyra Light]` entries.
-It also recognizes `kelp.toml`, provides field hover and completion, and adds
-a Kelp activity-bar view with format, compile, debug, run, test, and package actions.
+It also recognizes `kelp.toml`, provides field hover and completion for
+projects, `build.kind`, `[workspace]` members, and Git or local path
+dependencies, and adds a Kelp activity-bar view with format, compile, debug,
+run, test, package, and members actions. Compile and check tasks feed a
+contributed problem matcher, so `kelyra` diagnostics also appear in the
+Problems panel.
 **Format File** (also in the editor title bar) formats the current `.kly` document
 using its registered formatter, preserving VS Code's undo and unsaved edits.
 

@@ -56,6 +56,13 @@ assert.equal(
 );
 assert.equal(grammar.scopeName, "source.kelyra");
 assert.equal(language.comments.lineComment, "//");
+for (const file of [
+  manifest.contributes.viewsContainers.activitybar[0].icon,
+  ...manifest.contributes.grammars.map(({ path }) => path),
+  ...manifest.contributes.themes.map(({ path }) => path),
+  ...manifest.contributes.languages.map(({ configuration }) => configuration).filter(Boolean),
+])
+  assert.ok(fs.existsSync(path.join(root, file)), file);
 assert.equal(jetbrainsBundle.contributes.languages[1].filenames[0], "kelp.toml");
 assert.equal(jetbrainsBundle.contributes.grammars[1].scopeName, "source.kelp.toml");
 assert.match(jetbrainsPlugin, /platform\.lsp\.serverSupportProvider/);
@@ -109,7 +116,12 @@ Module._load = function (request, parent, isMain) {
           this.kind = kind;
         }
       },
-      CompletionItemKind: { Class: 1, Reference: 2, Keyword: 3 },
+      CompletionItemKind: { Class: 1, Reference: 2, Keyword: 3, Property: 4 },
+      SnippetString: class SnippetString {
+        constructor(value) {
+          this.value = value;
+        }
+      },
       Hover: class Hover {
         constructor(contents) {
           this.contents = contents;
@@ -126,8 +138,11 @@ const {
   documentAnnotations,
   format,
   kelpFieldAt,
+  kelpFields,
   kelpSectionAt,
   kelyraSymbolAt,
+  languageKeywords,
+  provideKelpCompletions,
   provideKelyraCompletions,
   provideKelyraHover,
 } = require("../extension.js");
@@ -159,6 +174,49 @@ for (const annotation of ["@target", "@repeatable", "@retention", "@route"])
   assert.ok(completions.some(({ label, documentation }) => label === annotation && documentation));
 assert.match(provideKelyraHover(document, { line: 2, character: 3 }).contents, /User-defined/);
 assert.match(provideKelyraHover(document, { line: 3, character: 12 }).contents, /Pointer-sized/);
+assert.equal(manifest.version, "0.5.0");
+assert.ok(manifest.contributes.commands.some(({ command }) => command === "kelp.members"));
+assert.equal(manifest.contributes.problemMatchers[0].name, "kelyra");
+assert.match(
+  "src/main.kly:3:7: error: type mismatch",
+  new RegExp(manifest.contributes.problemMatchers[0].pattern.regexp),
+);
+assert.ok(
+  manifest.contributes.menus["view/title"].some(({ command }) => command === "kelp.members"),
+);
+// Types must be matched before keywords so `meta.string` is not scoped as the
+// `meta` keyword.
+const typesPattern = grammar.patterns.findIndex(({ include }) => include === "#types");
+const keywordsPattern = grammar.patterns.findIndex(({ include }) => include === "#keywords");
+assert.ok(typesPattern !== -1 && typesPattern < keywordsPattern);
+assert.match("var", new RegExp(grammar.repository.keywords.patterns[1].match));
+assert.match("c.longlong", new RegExp(language.wordPattern));
+assert.match("math.vector", new RegExp(language.wordPattern));
+for (const [section, field] of [
+  ["build", "kind"],
+  ["workspace", "members"],
+  ["dependencies", "path"],
+])
+  assert.ok(kelpFields[section].some(([name]) => name === field), `${section}.${field}`);
+assert.equal(kelpFieldAt('[build]\nkind = "library"\n', 1, 2)[0], "kind");
+assert.equal(kelpFieldAt('[workspace]\nmembers = ["libs/math"]\n', 1, 3)[0], "members");
+assert.equal(kelpFieldAt('[dependencies.math]\npath = "../math"\n', 1, 2)[0], "path");
+assert.match(
+  provideKelyraHover(
+    { getText: () => "let size: usize;\n", lineAt: () => ({ text: "let size: usize;" }) },
+    { line: 0, character: 1 },
+  ).contents,
+  /Declares a local/,
+);
+assert.ok(languageKeywords.when && languageKeywords.meta && languageKeywords.asm);
+for (const keyword of ["let", "fn", "pub", "module", "import", "when", "meta", "asm"])
+  assert.ok(completions.some(({ label, documentation }) => label === keyword && documentation));
+assert.ok(
+  provideKelpCompletions(
+    { getText: () => "[build]\n", lineAt: () => ({ text: "[build]" }) },
+    { line: 0, character: 3 },
+  ).some(({ label }) => label === "kind"),
+);
 format(
   {
     getText: () => "fn main() {}\n",
