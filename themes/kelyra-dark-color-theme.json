@@ -47,6 +47,19 @@
     {
       "scope": ["entity.name.namespace", "variable.other.key"],
       "settings": { "foreground": "#81A1C1" }
+    },
+    {
+      "scope": [
+        "variable.other.readwrite",
+        "variable.other.member",
+        "variable.parameter",
+        "variable.other"
+      ],
+      "settings": { "foreground": "#9CDCFE" }
+    },
+    {
+      "scope": ["variable.language"],
+      "settings": { "foreground": "#81A1C1", "fontStyle": "italic" }
     }
   ]
 }

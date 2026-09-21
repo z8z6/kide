@@ -2,7 +2,7 @@
   "name": "kelyra",
   "displayName": "Kelyra",
   "description": "Kelyra language and Kelp project support",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "publisher": "z8z6",
   "license": "MIT",
   "repository": {
@@ -30,7 +30,7 @@
     }
   },
   "scripts": {
-    "test": "node --check extension.js && node test/smoke.js && node test/debug.js && node test/activate.js"
+    "test": "node --check extension.js && node test/smoke.js && node test/grammar.js && node test/debug.js && node test/activate.js"
   },
   "contributes": {
     "breakpoints": [{ "language": "kelyra" }],
@@ -385,5 +385,9 @@
   },
   "dependencies": {
     "vscode-languageclient": "^10.1.1"
+  },
+  "devDependencies": {
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
   }
 }

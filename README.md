@@ -9,6 +9,19 @@ indentation, document formatting through `kelyra-format`, and hover,
 completion, diagnostics, and definition navigation through `kelyra-ls`.
 Highlighting covers annotations, compile-time `when`/`meta` reflection,
 prefix pointers, inline assembly chains, and wildcard imports.
+Functions, module paths, variables, parameters, class fields, and member
+accesses each have their own scope, so they are colored by the bundled themes
+and by any theme that styles these scopes:
+
+| Element | Scope |
+| --- | --- |
+| Module path (`module`, `import`, qualified call) | `entity.name.namespace.kelyra` |
+| Function, at its declaration and at each call | `entity.name.function.kelyra` |
+| Class and annotation name | `entity.name.type.class.kelyra`, `entity.name.tag.kelyra` |
+| Local variable | `variable.other.readwrite.kelyra` |
+| Function parameter | `variable.parameter.kelyra` |
+| Class field and member access | `variable.other.member.kelyra` |
+| `this` | `variable.language.this.kelyra` |
 Built-in types and annotations have documented completion and hover support;
 keywords and annotations declared in the current document are also suggested.
 Classes use `class`, `init`, `deinit`, and the implicit `this` pointer. These

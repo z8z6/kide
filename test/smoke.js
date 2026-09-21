@@ -56,6 +56,12 @@ for (const { label, contents } of themes) {
     contents.colors["editor.background"],
     label,
   );
+  // Variables, members, and parameters are colored by the identifier scopes.
+  for (const scope of ["variable.other.readwrite", "variable.parameter", "variable.other.member"])
+    assert.ok(
+      contents.tokenColors.some(({ scope: rule }) => [].concat(rule).includes(scope)),
+      `${label}: ${scope}`,
+    );
 }
 // Both languages ship light and dark file icons.
 assert.deepEqual(
@@ -102,9 +108,41 @@ assert.ok(
   ),
 );
 assert.match("c.longlong", new RegExp(grammar.repository.types.patterns[1].match));
-assert.match("meta.symbol", new RegExp(grammar.repository.types.patterns[2].match));
+assert.ok(
+  grammar.repository.types.patterns.some(
+    ({ name, match }) => name === "storage.type.meta.kelyra" && new RegExp(match).test("meta.symbol"),
+  ),
+);
 assert.match("@web.route", new RegExp(grammar.repository.annotations.match));
 assert.match("usize", new RegExp(grammar.repository.types.patterns[0].match));
+// Variables, parameters, members, and calls are scoped by the identifier rules.
+const identifierScopes = grammar.repository.identifiers.patterns.flatMap(({ captures }) =>
+  Object.values(captures).map(({ name }) => name),
+);
+for (const scope of [
+  "variable.other.readwrite.kelyra",
+  "variable.parameter.kelyra",
+  "variable.other.member.kelyra",
+  "entity.name.function.kelyra",
+  "entity.name.namespace.kelyra",
+])
+  assert.ok(identifierScopes.includes(scope), scope);
+assert.ok(
+  grammar.patterns.some(({ include }) => include === "#identifiers"),
+  "#identifiers is reached",
+);
+assert.ok(
+  grammar.repository.declarations.patterns.some(({ captures }) =>
+    Object.values(captures).some(({ name }) => name === "variable.other.readwrite.kelyra"),
+  ),
+  "let bindings are scoped",
+);
+assert.ok(
+  grammar.repository.types.patterns.some(
+    ({ name, match }) => name === "storage.type.function.kelyra" && new RegExp(match).test("fn("),
+  ),
+  "function types are scoped",
+);
 const modifiers = new RegExp(grammar.repository.keywords.patterns[1].match);
 assert.match("let", modifiers);
 assert.doesNotMatch("mut", modifiers);
@@ -245,7 +283,7 @@ for (const annotation of ["@target", "@repeatable", "@retention", "@route"])
   assert.ok(completions.some(({ label, documentation }) => label === annotation && documentation));
 assert.match(provideKelyraHover(document, { line: 2, character: 3 }).contents, /User-defined/);
 assert.match(provideKelyraHover(document, { line: 3, character: 12 }).contents, /Pointer-sized/);
-assert.equal(manifest.version, "0.8.0");
+assert.equal(manifest.version, "0.9.0");
 assert.ok(manifest.contributes.commands.some(({ command }) => command === "kelp.members"));
 assert.ok(manifest.contributes.commands.some(({ command }) => command === "kelp.output"));
 assert.ok(manifest.activationEvents.includes("onView:kelp.projects"));
