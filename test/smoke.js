@@ -21,6 +21,20 @@ const themes = manifest.contributes.themes.map((theme) => ({
   contents: JSON.parse(fs.readFileSync(path.join(root, theme.path))),
 }));
 const extension = fs.readFileSync(path.join(root, "extension.js"), "utf8");
+const jetbrainsBundle = JSON.parse(
+  fs.readFileSync(path.join(root, "jetbrains/textmate/package.json")),
+);
+const jetbrainsPlugin = fs.readFileSync(
+  path.join(root, "jetbrains/src/main/resources/META-INF/plugin.xml"),
+  "utf8",
+);
+const jetbrainsLsp = fs.readFileSync(
+  path.join(
+    root,
+    "jetbrains/src/main/java/com/z8z6/kide/KelyraLspServerSupportProvider.java",
+  ),
+  "utf8",
+);
 
 assert.equal(manifest.contributes.languages[0].extensions[0], ".kly");
 assert.equal(manifest.contributes.languages[1].filenames[0], "kelp.toml");
@@ -42,6 +56,10 @@ assert.equal(
 );
 assert.equal(grammar.scopeName, "source.kelyra");
 assert.equal(language.comments.lineComment, "//");
+assert.equal(jetbrainsBundle.contributes.languages[1].filenames[0], "kelp.toml");
+assert.equal(jetbrainsBundle.contributes.grammars[1].scopeName, "source.kelp.toml");
+assert.match(jetbrainsPlugin, /platform\.lsp\.serverSupportProvider/);
+assert.match(jetbrainsLsp, /GeneralCommandLine\("kelyra-ls", "--stdio"\)/);
 assert.match("fn main", new RegExp(grammar.repository.declarations.patterns[0].match));
 assert.ok(
   grammar.repository.declarations.patterns.some(({ match }) =>

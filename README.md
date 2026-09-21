@@ -60,8 +60,10 @@ are not on `PATH`.
 
 ## JetBrains
 
-The plugin provides `.kly` syntax highlighting, comments, and bracket support
-through the IDE's bundled TextMate plugin.
+The plugin provides `.kly` syntax highlighting, comments, brackets, formatting,
+hover, completion, diagnostics, and definition navigation. It also highlights
+`kelp.toml`. Syntax support uses the bundled TextMate plugin; language features
+use the IDE's native LSP client and `kelyra-ls` from `PATH`.
 
 ```sh
 cd jetbrains
@@ -69,4 +71,4 @@ gradle buildPlugin
 ```
 
 Install the ZIP from `jetbrains/build/distributions` with **Install Plugin
-from Disk**.
+from Disk**. JetBrains IDE 2025.2 or newer is required.

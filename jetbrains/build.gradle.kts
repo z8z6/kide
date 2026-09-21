@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "com.z8z6"
-version = "0.1.0"
+version = "0.4.1"
 
 repositories {
   mavenCentral()
@@ -19,6 +19,7 @@ dependencies {
   intellijPlatform {
     intellijIdea("2025.2.6.1")
     bundledPlugin("org.jetbrains.plugins.textmate")
+    bundledModule("com.intellij.modules.lsp")
   }
 }
 

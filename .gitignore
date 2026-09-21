@@ -2,5 +2,6 @@
 .gradle/
 build/
 jetbrains/.gradle/
+jetbrains/.intellijPlatform/
 jetbrains/build/
 node_modules/
