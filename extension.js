@@ -1043,6 +1043,78 @@ async function refreshKelpStatus() {
   kelpStatus.show();
 }
 
+// Identifier colors come from the active color theme. Themes built for other
+// languages, such as the Visual Studio C/C++ ones, intentionally leave
+// variables and function names near the default foreground, so these rules add
+// Kelyra-only colors to the user's settings on request.
+const kelyraTokenColors = {
+  dark: [
+    {
+      scope: [
+        "source.kelyra variable.other.readwrite",
+        "source.kelyra variable.other.member",
+        "source.kelyra variable.parameter",
+      ],
+      settings: { foreground: "#9CDCFE" },
+    },
+    { scope: ["source.kelyra entity.name.function"], settings: { foreground: "#88C0D0" } },
+    { scope: ["source.kelyra entity.name.namespace"], settings: { foreground: "#81A1C1" } },
+  ],
+  light: [
+    {
+      scope: [
+        "source.kelyra variable.other.readwrite",
+        "source.kelyra variable.other.member",
+        "source.kelyra variable.parameter",
+      ],
+      settings: { foreground: "#1D4ED8" },
+    },
+    { scope: ["source.kelyra entity.name.function"], settings: { foreground: "#006D8F" } },
+    { scope: ["source.kelyra entity.name.namespace"], settings: { foreground: "#315F9C" } },
+  ],
+};
+
+function isKelyraTokenRule(rule) {
+  return [].concat(rule?.scope ?? []).some(
+    (scope) => typeof scope === "string" && scope.startsWith("source.kelyra "),
+  );
+}
+
+// Keeps the user's own customizations and replaces only previously applied
+// Kelyra rules, so the command is idempotent and safe to run again.
+function mergeKelyraTokenColors(existing, palette) {
+  const base = existing && typeof existing === "object" ? existing : {};
+  const rules = [].concat(base.textMateRules ?? []).filter((rule) => !isKelyraTokenRule(rule));
+  return { ...base, textMateRules: [...rules, ...kelyraTokenColors[palette]] };
+}
+
+async function applyKelyraTokenColors() {
+  const kind = vscode.window.activeColorTheme?.kind;
+  const light =
+    kind === vscode.ColorThemeKind?.Light || kind === vscode.ColorThemeKind?.HighContrastLight;
+  const palette = light ? "light" : "dark";
+  const configuration = vscode.workspace.getConfiguration("editor");
+  const updated = mergeKelyraTokenColors(
+    configuration.get("tokenColorCustomizations"),
+    palette,
+  );
+  await configuration.update(
+    "tokenColorCustomizations",
+    updated,
+    vscode.ConfigurationTarget.Global,
+  );
+  const choice = await vscode.window.showInformationMessage(
+    `Kelyra token colors applied for the current ${palette} theme. Run this again after switching between light and dark themes.`,
+    "Open Settings",
+  );
+  if (choice === "Open Settings")
+    await vscode.commands.executeCommand(
+      "workbench.action.openSettings",
+      "editor.tokenColorCustomizations",
+    );
+  return updated;
+}
+
 async function projectContext() {
   if (!vscode.workspace.isTrusted) throw new Error("Trust this workspace before running Kelp.");
   const document = vscode.window.activeTextEditor?.document;
@@ -1256,6 +1328,9 @@ async function activate(context) {
     vscode.commands.registerCommand("kelp.output", (argument) =>
       guard(async () => showKelpOutput(argument)),
     ),
+    vscode.commands.registerCommand("kelyra.applyTokenColors", () =>
+      guard(applyKelyraTokenColors),
+    ),
   );
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument((document) => {
@@ -1296,6 +1371,7 @@ async function deactivate() {
 
 module.exports = {
   activate,
+  applyKelyraTokenColors,
   deactivate,
   debugKelp,
   formatKelp,
@@ -1318,6 +1394,8 @@ module.exports = {
   buildKelyraIndex,
   kelyraParameterHints,
   kelyraSymbolAt,
+  kelyraTokenColors,
+  mergeKelyraTokenColors,
   parseKelyraModule,
   provideKelpCompletions,
   provideKelpDefinition,

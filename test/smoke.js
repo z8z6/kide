@@ -243,7 +243,9 @@ const {
   kelpSectionAt,
   kelyraParameterHints,
   kelyraSymbolAt,
+  kelyraTokenColors,
   languageKeywords,
+  mergeKelyraTokenColors,
   parseKelpManifest,
   parseKelpMembers,
   parseKelyraModule,
@@ -283,7 +285,7 @@ for (const annotation of ["@target", "@repeatable", "@retention", "@route"])
   assert.ok(completions.some(({ label, documentation }) => label === annotation && documentation));
 assert.match(provideKelyraHover(document, { line: 2, character: 3 }).contents, /User-defined/);
 assert.match(provideKelyraHover(document, { line: 3, character: 12 }).contents, /Pointer-sized/);
-assert.equal(manifest.version, "0.9.0");
+assert.equal(manifest.version, "0.10.0");
 assert.ok(manifest.contributes.commands.some(({ command }) => command === "kelp.members"));
 assert.ok(manifest.contributes.commands.some(({ command }) => command === "kelp.output"));
 assert.ok(manifest.activationEvents.includes("onView:kelp.projects"));
@@ -583,3 +585,45 @@ scanKelpProjects(projectRoot)
     assert.equal(await provideKelpDefinition(members, { line: 1, character: 22 }), undefined);
   })
   .finally(() => fs.rmSync(projectRoot, { recursive: true, force: true }));
+
+// Applying token colors keeps unrelated customizations, replaces previously
+// applied Kelyra rules, and picks a palette for the current theme.
+const existingColors = {
+  comments: "#ff0000",
+  textMateRules: [
+    { scope: "variable.other.demo", settings: { foreground: "#123456" } },
+    { scope: ["source.kelyra entity.name.function"], settings: { foreground: "#000000" } },
+  ],
+};
+const merged = mergeKelyraTokenColors(existingColors, "dark");
+assert.equal(merged.comments, "#ff0000");
+assert.equal(merged.textMateRules[0].scope, "variable.other.demo");
+assert.equal(
+  merged.textMateRules.filter((rule) =>
+    [].concat(rule.scope).some((scope) => scope.startsWith("source.kelyra ")),
+  ).length,
+  kelyraTokenColors.dark.length,
+  "stale Kelyra rules are replaced, not duplicated",
+);
+assert.ok(
+  merged.textMateRules.some((rule) =>
+    [].concat(rule.scope).includes("source.kelyra variable.other.readwrite"),
+  ),
+);
+assert.ok(
+  merged.textMateRules.some((rule) =>
+    [].concat(rule.scope).includes("source.kelyra entity.name.function"),
+  ),
+);
+assert.deepEqual(
+  mergeKelyraTokenColors(undefined, "light").textMateRules,
+  kelyraTokenColors.light,
+);
+assert.equal(
+  mergeKelyraTokenColors(undefined, "light").textMateRules[0].settings.foreground,
+  "#1D4ED8",
+);
+assert.notDeepEqual(kelyraTokenColors.dark, kelyraTokenColors.light);
+assert.ok(
+  manifest.contributes.commands.some(({ command }) => command === "kelyra.applyTokenColors"),
+);

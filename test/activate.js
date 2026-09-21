@@ -23,6 +23,7 @@ const disposables = [];
 const providers = [];
 const taskProviders = [];
 const treeProviders = new Map();
+const configurationUpdates = [];
 let openListener;
 let activeEditorListener;
 let configurationListener;
@@ -75,7 +76,10 @@ const vscode = {
     showErrorMessage: async () => undefined,
     showInformationMessage: async () => undefined,
     activeTextEditor: undefined,
+    activeColorTheme: { kind: 2 },
   },
+  ColorThemeKind: { Light: 1, Dark: 2, HighContrast: 3, HighContrastLight: 4 },
+  ConfigurationTarget: { Global: 1 },
   commands: {
     registerCommand: (name, handler) => {
       commands.set(name, handler);
@@ -93,7 +97,12 @@ const vscode = {
     isTrusted: false,
     textDocuments: [],
     workspaceFolders: [workspaceFolder],
-    getConfiguration: () => ({ get: (_key, fallback) => fallback }),
+    getConfiguration: () => ({
+      get: (_key, fallback) => fallback,
+      update: async (key, value, target) => {
+        configurationUpdates.push({ key, value, target });
+      },
+    }),
     onDidOpenTextDocument: (listener) => {
       openListener = listener;
       return disposable();
@@ -181,6 +190,7 @@ async function test() {
     "kelp.openManifest",
     "kelp.revealProject",
     "kelp.output",
+    "kelyra.applyTokenColors",
   ])
     assert.ok(commands.has(command), command);
   assert.deepEqual(providers, [
@@ -192,6 +202,22 @@ async function test() {
   ]);
   assert.deepEqual(taskProviders, ["kelp:dynamic"]);
   assert.equal(starts.length, 0); // No Kelyra document is open yet.
+
+  // The token-color command writes Kelyra-scoped rules to the user's settings.
+  await commands.get("kelyra.applyTokenColors")();
+  assert.equal(configurationUpdates.length, 1);
+  assert.equal(configurationUpdates[0].key, "tokenColorCustomizations");
+  assert.equal(configurationUpdates[0].target, vscode.ConfigurationTarget.Global);
+  assert.ok(
+    configurationUpdates[0].value.textMateRules.some((rule) =>
+      [].concat(rule.scope).includes("source.kelyra variable.other.readwrite"),
+    ),
+  );
+  assert.ok(
+    configurationUpdates[0].value.textMateRules.some((rule) =>
+      [].concat(rule.scope).includes("source.kelyra entity.name.function"),
+    ),
+  );
 
   // The Projects view scans manifests when `kelp` cannot be run, nests members
   // by directory, and points each project at its own working directory.

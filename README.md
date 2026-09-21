@@ -53,6 +53,15 @@ Both use VS Code's standard theme contribution, so users can override UI and
 syntax colors with `workbench.colorCustomizations` and
 `editor.tokenColorCustomizations`, including theme-specific `[Kelyra Dark]`
 or `[Kelyra Light]` entries.
+Identifier colors come from the active theme, and themes written for other
+languages can leave them plain: the Visual Studio C/C++ themes, for example,
+deliberately paint variables, functions, and namespaces with the default
+foreground. **Kelyra: Apply Token Colors** adds `source.kelyra`-scoped rules to
+your user settings, so variables, parameters, members, functions, and module
+paths are colored while every other language keeps the theme's own colors. It
+keeps unrelated customizations, replaces only the rules it applied before, and
+uses a light or dark palette chosen from the current theme, so run it again
+after switching between light and dark themes.
 It also recognizes `kelp.toml`, provides field hover and completion for
 projects, `build.kind`, `[workspace]` members, and Git or local path
 dependencies, and adds a Kelp activity-bar view with format, compile, debug,
