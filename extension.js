@@ -519,7 +519,8 @@ async function loadKelyraIndex() {
   try {
     const files = await vscode.workspace.findFiles(
       "**/*.kly",
-      "**/{node_modules,build,.kelp,.git}/**",
+      // Dependency sources under .kelp/dependencies are indexed on purpose.
+      "**/{node_modules,build,.git}/**",
     );
     for (const file of files)
       record(Buffer.from(await vscode.workspace.fs.readFile(file)).toString("utf8"));

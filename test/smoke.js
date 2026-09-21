@@ -113,8 +113,13 @@ Module._load = function (request, parent, isMain) {
           get: (key, fallback) =>
             section === "kelyra" && key === "inlayHints.parameterNames" ? "all" : "/usr/bin/printf",
         }),
-        findFiles: async () => [],
-        fs: { readFile: async () => Buffer.from("") },
+        findFiles: async () => ["file:///project/.kelp/dependencies/math/int.kly"],
+        fs: {
+          readFile: async () =>
+            Buffer.from(
+              "module math.int;\npub fn scale(value: i32, factor: i32) -> i32 { return 0; }\n",
+            ),
+        },
         textDocuments: [],
       },
       CompletionItem: class CompletionItem {
@@ -356,15 +361,22 @@ format(
     const inlayDocument = {
       getText: () =>
         "fn add(left: i32, right: i32) -> i32 { return 0; }\n" +
-        "fn use() -> i32 { return add(1, 2); }\n",
+        "fn use() -> i32 { return add(1, 2); }\n" +
+        "fn scale() -> i32 { return math.int.scale(3, 4); }\n",
     };
-    const full = { start: { line: 0, character: 0 }, end: { line: 1, character: 60 } };
+    const full = { start: { line: 0, character: 0 }, end: { line: 2, character: 60 } };
     return provideKelyraInlayHints(inlayDocument, full).then((hints) => {
-      assert.deepEqual(hints.map(({ label }) => label), ["left:", "right:"]);
-      const line = inlayDocument.getText().split("\n")[1];
+      // Local calls resolve from the document; the qualified call resolves
+      // through the dependency index.
       assert.deepEqual(
-        hints.map(({ position }) => position.character),
-        [line.indexOf("1,"), line.indexOf("2)")],
+        hints.map(({ label }) => label),
+        ["left:", "right:", "value:", "factor:"],
+      );
+      assert.deepEqual(hints.map(({ position }) => position.line), [1, 1, 2, 2]);
+      const lines = inlayDocument.getText().split("\n");
+      assert.deepEqual(
+        [hints[0].position.character, hints[1].position.character],
+        [lines[1].indexOf("1,"), lines[1].indexOf("2)")],
       );
       const firstLine = { start: { line: 0, character: 0 }, end: { line: 0, character: 60 } };
       return provideKelyraInlayHints(inlayDocument, firstLine).then((filtered) =>
