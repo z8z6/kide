@@ -1,5 +1,6 @@
 .git/**
 .gitignore
+AGENTS.md
 .gradle/**
 jetbrains/**
 test/**

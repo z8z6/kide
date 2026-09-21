@@ -52,22 +52,17 @@ Module._load = function (request, parent, main) {
   } };
   return load(request, parent, main);
 };
-const { debugKelp, formatKelp, kelpActions, runKelp } = require("../extension.js");
+const { debugKelp, kelpActions, runKelp } = require("../extension.js");
 Module._load = load;
 
 async function test() {
-  assert.ok(manifest.contributes.commands.some(({ command }) => command === "kelp.format"));
-  assert.ok(manifest.contributes.menus["view/title"].some(({ command }) => command === "kelp.format"));
+  assert.ok(!manifest.contributes.commands.some(({ command }) => command === "kelp.format"));
+  assert.ok(!kelpActions.some(([, command]) => command === "kelp.format"));
   assert.deepEqual(manifest.contributes.breakpoints, [{ language: "kelyra" }]);
   assert.equal(manifest.contributes.configuration.properties["kelp.debug.gdbPath"].default, "gdb");
   for (const command of ["focusVariablesView", "focusCallStackView", "focusWatchView", "focusRepl"])
     assert.ok(kelpActions.some(([, action]) => action === `workbench.debug.action.${command}`));
   assert.ok(kelpActions.some(([label, action]) => label === "Members" && action === "kelp.members"));
-  await formatKelp();
-  assert.equal(commands.pop(), "editor.action.formatDocument");
-  document.languageId = "kelp";
-  await assert.rejects(formatKelp(), /Open a Kelyra/);
-  document.languageId = "kelyra";
   await debugKelp();
   assert.equal(disposed, 1);
   assert.deepEqual(tasks[0].execution.args, ["build", "--debug"]);

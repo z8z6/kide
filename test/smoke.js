@@ -17,10 +17,6 @@ const language = JSON.parse(
 const kelpGrammar = JSON.parse(
   fs.readFileSync(path.join(root, "syntaxes/kelp.tmLanguage.json")),
 );
-const themes = manifest.contributes.themes.map((theme) => ({
-  ...theme,
-  contents: JSON.parse(fs.readFileSync(path.join(root, theme.path))),
-}));
 const extension = fs.readFileSync(path.join(root, "extension.js"), "utf8");
 const jetbrainsBundle = JSON.parse(
   fs.readFileSync(path.join(root, "jetbrains/textmate/package.json")),
@@ -43,26 +39,15 @@ assert.equal(kelpGrammar.scopeName, "source.kelp.toml");
 assert.equal(manifest.contributes.viewsContainers.activitybar[0].id, "kelp");
 assert.equal(manifest.contributes.views.kelp[0].id, "kelp.projects");
 assert.equal(manifest.contributes.views.kelp[1].id, "kelp.actions");
-assert.deepEqual(themes.map(({ label }) => label), ["Kelyra Dark", "Kelyra Light"]);
-assert.deepEqual(themes.map(({ uiTheme }) => uiTheme), ["vs-dark", "vs"]);
-for (const { label, contents } of themes) {
-  assert.ok(contents.colors["editor.background"]);
-  assert.ok(contents.tokenColors.some(({ scope }) => scope.includes("entity.name.tag")));
-  // Parameter hints get a code-span background so they read as inline names.
-  assert.ok(contents.colors["editorInlayHint.parameterBackground"], label);
-  assert.ok(contents.colors["editorInlayHint.parameterForeground"], label);
-  assert.notEqual(
-    contents.colors["editorInlayHint.parameterBackground"],
-    contents.colors["editor.background"],
-    label,
-  );
-  // Variables, members, and parameters are colored by the identifier scopes.
-  for (const scope of ["variable.other.readwrite", "variable.parameter", "variable.other.member"])
-    assert.ok(
-      contents.tokenColors.some(({ scope: rule }) => [].concat(rule).includes(scope)),
-      `${label}: ${scope}`,
-    );
-}
+assert.equal(manifest.contributes.themes, undefined);
+assert.deepEqual(
+  manifest.contributes.configuration.properties["kelyra.colorScheme"].enum,
+  ["off", "laevatain", "jue", "perlica"],
+);
+assert.equal(
+  manifest.contributes.configuration.properties["kelyra.colorScheme"].default,
+  "laevatain",
+);
 // Both languages ship light and dark file icons.
 assert.deepEqual(
   manifest.contributes.languages.map(({ id, icon }) => [id, Object.keys(icon).sort()]),
@@ -74,6 +59,8 @@ assert.deepEqual(
 for (const { icon } of manifest.contributes.languages)
   for (const iconPath of Object.values(icon))
     assert.match(fs.readFileSync(path.join(root, iconPath), "utf8"), /^<svg[\s>]/);
+for (const iconPath of manifest.contributes.languages.flatMap(({ icon }) => Object.values(icon)))
+  assert.match(fs.readFileSync(path.join(root, iconPath), "utf8"), /linearGradient/);
 assert.ok(manifest.contributes.commands.some(({ command }) => command === "kelp.debug"));
 assert.match(extension, /new vscode\.ProcessExecution\(executable, \[command, \.\.\.args\]/);
 assert.equal(manifest.dependencies["vscode-languageclient"], "^10.1.1");
@@ -86,7 +73,6 @@ assert.equal(language.comments.lineComment, "//");
 for (const file of [
   manifest.contributes.viewsContainers.activitybar[0].icon,
   ...manifest.contributes.grammars.map(({ path: grammarPath }) => grammarPath),
-  ...manifest.contributes.themes.map(({ path: themePath }) => themePath),
   ...manifest.contributes.snippets.map(({ path: snippetPath }) => snippetPath),
   ...manifest.contributes.languages.map(({ configuration }) => configuration).filter(Boolean),
   ...manifest.contributes.languages.flatMap(({ icon }) => Object.values(icon)),
@@ -164,6 +150,13 @@ assert.ok(
 assert.match("value != 42", new RegExp(grammar.repository.operators.match));
 assert.match("&value", new RegExp(grammar.repository.operators.match));
 
+const formatterDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "kide-formatter-"));
+const formatterPath = path.join(formatterDirectory, "formatter");
+fs.writeFileSync(
+  formatterPath,
+  '#!/usr/bin/env node\nrequire("node:fs").writeFileSync(process.argv[3], "fn main() {\\n  return;\\n}\\n");\n',
+);
+fs.chmodSync(formatterPath, 0o755);
 const originalLoad = Module._load;
 Module._load = function (request, parent, isMain) {
   if (request === "vscode") {
@@ -171,7 +164,7 @@ Module._load = function (request, parent, isMain) {
       workspace: {
         getConfiguration: (section) => ({
           get: (key, fallback) =>
-            section === "kelyra" && key === "inlayHints.parameterNames" ? "all" : "/usr/bin/printf",
+            section === "kelyra" && key === "inlayHints.parameterNames" ? "all" : formatterPath,
         }),
         findFiles: async () => ["file:///project/.kelp/dependencies/math/int.kly"],
         fs: {
@@ -237,6 +230,7 @@ const {
   buildKelyraIndex,
   documentAnnotations,
   format,
+  formatterCandidates,
   kelpFieldAt,
   kelpFields,
   kelpArtifactPath,
@@ -286,7 +280,16 @@ for (const annotation of ["@target", "@repeatable", "@retention", "@route"])
   assert.ok(completions.some(({ label, documentation }) => label === annotation && documentation));
 assert.match(provideKelyraHover(document, { line: 2, character: 3 }).contents, /User-defined/);
 assert.match(provideKelyraHover(document, { line: 3, character: 12 }).contents, /Pointer-sized/);
-assert.equal(manifest.version, "0.10.0");
+assert.equal(manifest.version, "0.10.4");
+assert.deepEqual(formatterCandidates({ uri: {} }, "/tools/kelyra-format"), [
+  "/tools/kelyra-format",
+]);
+assert.ok(
+  formatterCandidates(
+    { uri: { scheme: "file", fsPath: "/workspace/project/src/main.kly" } },
+    "kelyra-format",
+  ).includes(path.join("/workspace/project", "kelyra/build/bin/kelyra-format")),
+);
 assert.ok(manifest.contributes.commands.some(({ command }) => command === "kelp.members"));
 assert.ok(manifest.contributes.commands.some(({ command }) => command === "kelp.output"));
 assert.ok(manifest.activationEvents.includes("onView:kelp.projects"));
@@ -299,19 +302,9 @@ assert.equal(manifest.contributes.configurationDefaults["[kelyra]"]["editor.form
 // Hints render smaller and padded, like an inline code span.
 assert.equal(manifest.contributes.configurationDefaults["[kelyra]"]["editor.inlayHints.fontSize"], 11);
 assert.equal(manifest.contributes.configurationDefaults["[kelyra]"]["editor.inlayHints.padding"], true);
-// Format Document is reachable from the editor's right-click menu.
-assert.equal(
-  manifest.contributes.commands.find(({ command }) => command === "kelp.format").title,
-  "Format Document",
-);
-assert.ok(
-  manifest.contributes.menus["editor/context"].some(
-    ({ command, when, group }) =>
-      command === "kelp.format" &&
-      when === "editorLangId == kelyra" &&
-      group.startsWith("1_modification"),
-  ),
-);
+assert.ok(!manifest.contributes.commands.some(({ command }) => command === "kelp.format"));
+assert.equal(manifest.contributes.menus["editor/context"], undefined);
+assert.equal(manifest.contributes.menus["editor/title"], undefined);
 assert.ok(
   manifest.contributes.menus["view/title"].some(
     ({ command, when }) => command === "kelp.refreshProjects" && when === "view == kelp.projects",
@@ -465,12 +458,16 @@ assert.ok(
 );
 format(
   {
-    getText: () => "fn main() {}\n",
-    positionAt: () => ({ line: 0, character: 13 }),
+    getText: () => "fn main(){return;}",
+    positionAt: () => ({ line: 0, character: 18 }),
   },
+  {},
   { onCancellationRequested: () => {} },
 )
-  .then((edits) => assert.match(edits[0].text, /source\.kly$/))
+  .then((edits) => {
+    assert.equal(edits[0].text, "fn main() {\n  return;\n}\n");
+    fs.rmSync(formatterDirectory, { recursive: true, force: true });
+  })
   .then(() => {
     const inlayDocument = {
       getText: () =>
@@ -604,8 +601,7 @@ scanKelpProjects(projectRoot)
   })
   .finally(() => fs.rmSync(projectRoot, { recursive: true, force: true }));
 
-// Applying token colors keeps unrelated customizations, replaces previously
-// applied Kelyra rules, and picks a palette for the current theme.
+// Applying a palette keeps unrelated customizations and replaces only Kelyra rules.
 const existingColors = {
   comments: "#ff0000",
   textMateRules: [
@@ -613,14 +609,14 @@ const existingColors = {
     { scope: ["source.kelyra entity.name.function"], settings: { foreground: "#000000" } },
   ],
 };
-const merged = mergeKelyraTokenColors(existingColors, "dark");
+const merged = mergeKelyraTokenColors(existingColors, kelyraTokenColors.laevatain.dark);
 assert.equal(merged.comments, "#ff0000");
 assert.equal(merged.textMateRules[0].scope, "variable.other.demo");
 assert.equal(
   merged.textMateRules.filter((rule) =>
     [].concat(rule.scope).some((scope) => scope.startsWith("source.kelyra ")),
   ).length,
-  kelyraTokenColors.dark.length,
+  kelyraTokenColors.laevatain.dark.length,
   "stale Kelyra rules are replaced, not duplicated",
 );
 assert.ok(
@@ -634,14 +630,19 @@ assert.ok(
   ),
 );
 assert.deepEqual(
-  mergeKelyraTokenColors(undefined, "light").textMateRules,
-  kelyraTokenColors.light,
+  mergeKelyraTokenColors(undefined, kelyraTokenColors.jue.light).textMateRules,
+  kelyraTokenColors.jue.light,
 );
 assert.equal(
-  mergeKelyraTokenColors(undefined, "light").textMateRules[0].settings.foreground,
-  "#1D4ED8",
+  mergeKelyraTokenColors(undefined, kelyraTokenColors.jue.light).textMateRules[0].settings.foreground,
+  "#607178",
 );
-assert.notDeepEqual(kelyraTokenColors.dark, kelyraTokenColors.light);
+assert.notDeepEqual(kelyraTokenColors.laevatain.dark, kelyraTokenColors.jue.dark);
+for (const scheme of Object.values(kelyraTokenColors))
+  for (const palette of Object.values(scheme))
+    for (const rule of palette)
+      assert.ok([].concat(rule.scope).every((scope) => scope.startsWith("source.kelyra ")));
+assert.equal(mergeKelyraTokenColors(existingColors).textMateRules.length, 1);
 assert.ok(
   manifest.contributes.commands.some(({ command }) => command === "kelyra.applyTokenColors"),
 );

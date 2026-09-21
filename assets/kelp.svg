@@ -1,3 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-  <path fill="none" stroke="#C5C5C5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M12 21V7m0 5C8 12 5 10 4 6c4-1 7 1 8 5m0 5c4 0 7-2 8-6-4-1-7 1-8 5M12 8C9 7 8 4 9 2c3 1 4 3 3 6Z"/>
+  <defs>
+    <mask id="kelp-cutout">
+      <rect width="24" height="24" fill="white"/>
+      <path d="M7 6h3v5.1L15 6h4l-6.4 6.1L19 18h-4.2L10 13.4V18H7z" fill="black"/>
+      <path d="M2 17 7 22H2z" fill="black"/>
+    </mask>
+  </defs>
+  <rect x="2" y="2" width="20" height="20" rx="3" fill="#C5C5C5" mask="url(#kelp-cutout)"/>
 </svg>

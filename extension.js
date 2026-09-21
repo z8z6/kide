@@ -588,7 +588,6 @@ const kelpFields = {
 };
 
 const kelpActions = [
-  ["Format File", "kelp.format", "symbol-keyword"],
   ["Compile", "kelp.build", "tools"],
   ["Debug", "kelp.debug", "debug-alt"],
   ["Run", "kelp.run", "play"],
@@ -1053,35 +1052,99 @@ async function refreshKelpStatus() {
   kelpStatus.show();
 }
 
-// Identifier colors come from the active color theme. Themes built for other
-// languages, such as the Visual Studio C/C++ ones, intentionally leave
-// variables and function names near the default foreground, so these rules add
-// Kelyra-only colors to the user's settings on request.
+function kelyraTokenRules(colors) {
+  return [
+    {
+      scope: ["source.kelyra comment", "source.kelyra punctuation.definition.comment"],
+      settings: { foreground: colors.comment, fontStyle: "italic" },
+    },
+    {
+      scope: ["source.kelyra keyword", "source.kelyra storage.modifier"],
+      settings: { foreground: colors.keyword },
+    },
+    {
+      scope: ["source.kelyra storage.type", "source.kelyra support.type"],
+      settings: { foreground: colors.type },
+    },
+    {
+      scope: ["source.kelyra entity.name.function", "source.kelyra support.function"],
+      settings: { foreground: colors.function },
+    },
+    {
+      scope: [
+        "source.kelyra entity.name.type",
+        "source.kelyra entity.name.tag",
+        "source.kelyra entity.name.section",
+      ],
+      settings: { foreground: colors.name },
+    },
+    {
+      scope: ["source.kelyra string", "source.kelyra constant.character.escape"],
+      settings: { foreground: colors.string },
+    },
+    {
+      scope: ["source.kelyra constant.numeric", "source.kelyra constant.language"],
+      settings: { foreground: colors.constant },
+    },
+    {
+      scope: ["source.kelyra entity.name.namespace", "source.kelyra variable.other.key"],
+      settings: { foreground: colors.namespace },
+    },
+    {
+      scope: [
+        "source.kelyra variable.other.readwrite",
+        "source.kelyra variable.other.member",
+        "source.kelyra variable.parameter",
+        "source.kelyra variable.other",
+      ],
+      settings: { foreground: colors.variable },
+    },
+    {
+      scope: ["source.kelyra variable.language"],
+      settings: { foreground: colors.namespace, fontStyle: "italic" },
+    },
+  ];
+}
+
+// Character palettes still follow the active theme's contrast, but every
+// selector is rooted at source.kelyra so no other language is recolored.
 const kelyraTokenColors = {
-  dark: [
-    {
-      scope: [
-        "source.kelyra variable.other.readwrite",
-        "source.kelyra variable.other.member",
-        "source.kelyra variable.parameter",
-      ],
-      settings: { foreground: "#9CDCFE" },
-    },
-    { scope: ["source.kelyra entity.name.function"], settings: { foreground: "#88C0D0" } },
-    { scope: ["source.kelyra entity.name.namespace"], settings: { foreground: "#81A1C1" } },
-  ],
-  light: [
-    {
-      scope: [
-        "source.kelyra variable.other.readwrite",
-        "source.kelyra variable.other.member",
-        "source.kelyra variable.parameter",
-      ],
-      settings: { foreground: "#1D4ED8" },
-    },
-    { scope: ["source.kelyra entity.name.function"], settings: { foreground: "#006D8F" } },
-    { scope: ["source.kelyra entity.name.namespace"], settings: { foreground: "#315F9C" } },
-  ],
+  laevatain: {
+    dark: kelyraTokenRules({
+      comment: "#9A8490", keyword: "#FF6670", type: "#FF9D66", function: "#FFD166",
+      name: "#C792EA", string: "#F29AB2", constant: "#FF7A45", namespace: "#E879A6",
+      variable: "#F1D8DC",
+    }),
+    light: kelyraTokenRules({
+      comment: "#76616B", keyword: "#B42332", type: "#B64A1E", function: "#8A5A00",
+      name: "#7040A0", string: "#A52F5A", constant: "#B63D12", namespace: "#9A3567",
+      variable: "#702A36",
+    }),
+  },
+  jue: {
+    dark: kelyraTokenRules({
+      comment: "#7F9299", keyword: "#55D6BE", type: "#65B8E8", function: "#8BE0F2",
+      name: "#C8D6E5", string: "#9BD08F", constant: "#E6C875", namespace: "#5CC8C2",
+      variable: "#D7E7EA",
+    }),
+    light: kelyraTokenRules({
+      comment: "#607178", keyword: "#087F70", type: "#176F9E", function: "#006F85",
+      name: "#455A70", string: "#3D7A35", constant: "#8A6500", namespace: "#167D78",
+      variable: "#294F58",
+    }),
+  },
+  perlica: {
+    dark: kelyraTokenRules({
+      comment: "#8B929B", keyword: "#F4C542", type: "#74B9FF", function: "#FFD866",
+      name: "#E6EDF3", string: "#8BD5CA", constant: "#FFB454", namespace: "#4FC3F7",
+      variable: "#D9E2EC",
+    }),
+    light: kelyraTokenRules({
+      comment: "#687078", keyword: "#9A6A00", type: "#1769AA", function: "#8A5E00",
+      name: "#465565", string: "#28786F", constant: "#A54F00", namespace: "#007A9E",
+      variable: "#374957",
+    }),
+  },
 };
 
 function isKelyraTokenRule(rule) {
@@ -1095,26 +1158,27 @@ function isKelyraTokenRule(rule) {
 function mergeKelyraTokenColors(existing, palette) {
   const base = existing && typeof existing === "object" ? existing : {};
   const rules = [].concat(base.textMateRules ?? []).filter((rule) => !isKelyraTokenRule(rule));
-  return { ...base, textMateRules: [...rules, ...kelyraTokenColors[palette]] };
+  return { ...base, textMateRules: [...rules, ...(palette ?? [])] };
 }
 
-async function applyKelyraTokenColors() {
+async function applyKelyraTokenColors(showMessage = true) {
+  const scheme = vscode.workspace.getConfiguration("kelyra").get("colorScheme", "laevatain");
   const kind = vscode.window.activeColorTheme?.kind;
   const light =
     kind === vscode.ColorThemeKind?.Light || kind === vscode.ColorThemeKind?.HighContrastLight;
-  const palette = light ? "light" : "dark";
+  const palette = kelyraTokenColors[scheme]?.[light ? "light" : "dark"];
   const configuration = vscode.workspace.getConfiguration("editor");
-  const updated = mergeKelyraTokenColors(
-    configuration.get("tokenColorCustomizations"),
-    palette,
-  );
+  const current = configuration.get("tokenColorCustomizations");
+  const updated = mergeKelyraTokenColors(current, palette);
+  if (JSON.stringify(current) === JSON.stringify(updated)) return updated;
   await configuration.update(
     "tokenColorCustomizations",
     updated,
     vscode.ConfigurationTarget.Global,
   );
+  if (!showMessage) return updated;
   const choice = await vscode.window.showInformationMessage(
-    `Kelyra token colors applied for the current ${palette} theme. Run this again after switching between light and dark themes.`,
+    scheme === "off" ? "Kelyra color scheme disabled." : `Kelyra ${scheme} colors applied.`,
     "Open Settings",
   );
   if (choice === "Open Settings")
@@ -1123,6 +1187,23 @@ async function applyKelyraTokenColors() {
       "editor.tokenColorCustomizations",
     );
   return updated;
+}
+
+async function selectKelyraColorScheme() {
+  const selected = await vscode.window.showQuickPick(
+    [
+      { label: "Laevatain / 莱万汀", value: "laevatain" },
+      { label: "Jue / 诀", value: "jue" },
+      { label: "Perlica / 佩丽卡", value: "perlica" },
+      { label: "Off", value: "off" },
+    ],
+    { placeHolder: "Select a Kelyra-only color scheme" },
+  );
+  if (!selected) return;
+  await vscode.workspace
+    .getConfiguration("kelyra")
+    .update("colorScheme", selected.value, vscode.ConfigurationTarget.Global);
+  return applyKelyraTokenColors();
 }
 
 async function projectContext() {
@@ -1215,35 +1296,65 @@ async function debugKelp(argument) {
   return started;
 }
 
-async function formatKelp() {
-  if (vscode.window.activeTextEditor?.document.languageId !== "kelyra")
-    throw new Error("Open a Kelyra (.kly) file to format it.");
-  return vscode.commands.executeCommand("editor.action.formatDocument");
+function formatterCandidates(document, configured) {
+  if (configured !== "kelyra-format") return [configured];
+  const executable = process.platform === "win32" ? "kelyra-format.exe" : "kelyra-format";
+  const candidates = [configured];
+  let directory = vscode.workspace.getWorkspaceFolder?.(document.uri)?.uri.fsPath;
+  if (!directory && document.uri?.scheme === "file") directory = path.dirname(document.uri.fsPath);
+  while (directory) {
+    candidates.push(
+      path.join(directory, "build", "bin", executable),
+      path.join(directory, "kelyra", "build", "bin", executable),
+    );
+    const parent = path.dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
+  }
+  return candidates;
 }
 
-async function format(document, token) {
+function runFormatter(executable, source, token) {
+  return new Promise((resolve, reject) => {
+    const process = childProcess.execFile(
+      executable,
+      ["-i", source],
+      { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
+      (error, _stdout, stderr) => {
+        if (error) {
+          if (stderr.trim()) error.message = stderr.trim();
+          reject(error);
+        } else {
+          resolve();
+        }
+      },
+    );
+    token.onCancellationRequested(() => process.kill());
+  });
+}
+
+async function format(document, _options, token) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "kelyra-format-"));
   const source = path.join(directory, "source.kly");
   try {
     await fs.writeFile(source, document.getText());
-    const executable = vscode.workspace
+    const configured = vscode.workspace
       .getConfiguration("kelyra")
       .get("formatter.path", "kelyra-format");
-    const formatted = await new Promise((resolve, reject) => {
-      const process = childProcess.execFile(
-        executable,
-        [source],
-        { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
-        (error, stdout, stderr) => {
-          if (error) {
-            reject(new Error(stderr.trim() || error.message));
-          } else {
-            resolve(stdout);
-          }
-        },
-      );
-      token.onCancellationRequested(() => process.kill());
-    });
+    let ran = false;
+    for (const executable of formatterCandidates(document, configured)) {
+      try {
+        await runFormatter(executable, source, token);
+        ran = true;
+        break;
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+      }
+    }
+    if (!ran)
+      throw new Error(`Cannot run ${configured}. Install kelyra-format or set kelyra.formatter.path.`);
+    const formatted = await fs.readFile(source, "utf8");
+    if (formatted === document.getText()) return [];
     const end = document.positionAt(document.getText().length);
     return [vscode.TextEdit.replace(new vscode.Range(0, 0, end.line, end.character), formatted)];
   } finally {
@@ -1314,11 +1425,10 @@ async function activate(context) {
     }),
     kelpStatus,
   );
-  for (const command of ["format", "check", "build", "debug", "run", "test", "package", "members"])
+  for (const command of ["check", "build", "debug", "run", "test", "package", "members"])
     context.subscriptions.push(
       vscode.commands.registerCommand(`kelp.${command}`, async (argument) => {
         try {
-          if (command === "format") return await formatKelp();
           const project = projectFrom(argument);
           if (command === "debug") return await debugKelp(project);
           return await runKelp(command, { project });
@@ -1339,7 +1449,7 @@ async function activate(context) {
       guard(async () => showKelpOutput(argument)),
     ),
     vscode.commands.registerCommand("kelyra.applyTokenColors", () =>
-      guard(applyKelyraTokenColors),
+      guard(selectKelyraColorScheme),
     ),
   );
   context.subscriptions.push(
@@ -1356,17 +1466,23 @@ async function activate(context) {
         void refreshKelpStatus();
       }
     }),
-    vscode.workspace.onDidChangeActiveTextEditor(() => void refreshKelpStatus()),
+    vscode.window.onDidChangeActiveTextEditor(() => void refreshKelpStatus()),
+    vscode.window.onDidChangeActiveColorTheme(() => void applyKelyraTokenColors(false)),
     vscode.workspace.onDidChangeConfiguration(async (event) => {
-      if (!event.affectsConfiguration("kelyra.languageServer.path")) return;
-      if (client) {
-        await client.stop();
-        client = undefined;
+      if (event.affectsConfiguration("kelyra.colorScheme")) {
+        await applyKelyraTokenColors(false);
+      } else if (event.affectsConfiguration("kelyra.languageServer.path")) {
+        if (client) {
+          await client.stop();
+          client = undefined;
+        }
+        if (vscode.workspace.textDocuments.some(({ languageId }) => languageId === "kelyra"))
+          await startLanguageServer();
       }
-      if (vscode.workspace.textDocuments.some(({ languageId }) => languageId === "kelyra"))
-        await startLanguageServer();
     }),
   );
+  if (vscode.workspace.getConfiguration("kelyra").get("colorScheme", "laevatain") !== "off")
+    void applyKelyraTokenColors(false);
   if (vscode.workspace.textDocuments.some(({ languageId }) => languageId === "kelyra"))
     await startLanguageServer();
   void refreshKelpStatus();
@@ -1384,7 +1500,6 @@ module.exports = {
   applyKelyraTokenColors,
   deactivate,
   debugKelp,
-  formatKelp,
   kelpActions,
   kelpArtifactPath,
   kelpFields,
@@ -1400,6 +1515,7 @@ module.exports = {
   showKelpOutput,
   documentAnnotations,
   format,
+  formatterCandidates,
   kelpFieldAt,
   kelpSectionAt,
   buildKelyraIndex,
@@ -1414,4 +1530,5 @@ module.exports = {
   provideKelyraFoldingRanges,
   provideKelyraHover,
   provideKelyraInlayHints,
+  selectKelyraColorScheme,
 };

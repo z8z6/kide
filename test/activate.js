@@ -26,9 +26,14 @@ const treeProviders = new Map();
 const configurationUpdates = [];
 let openListener;
 let activeEditorListener;
+let colorThemeListener;
 let configurationListener;
 const starts = [];
 const stops = [];
+const configurationValues = {
+  editor: {},
+  kelyra: { colorScheme: "off" },
+};
 
 function disposable() {
   const item = { dispose: () => disposables.push(item) };
@@ -75,8 +80,17 @@ const vscode = {
     createStatusBarItem: () => statusItem,
     showErrorMessage: async () => undefined,
     showInformationMessage: async () => undefined,
+    showQuickPick: async (items) => items[0],
     activeTextEditor: undefined,
     activeColorTheme: { kind: 2 },
+    onDidChangeActiveColorTheme: (listener) => {
+      colorThemeListener = listener;
+      return disposable();
+    },
+    onDidChangeActiveTextEditor: (listener) => {
+      activeEditorListener = listener;
+      return disposable();
+    },
   },
   ColorThemeKind: { Light: 1, Dark: 2, HighContrast: 3, HighContrastLight: 4 },
   ConfigurationTarget: { Global: 1 },
@@ -97,9 +111,11 @@ const vscode = {
     isTrusted: false,
     textDocuments: [],
     workspaceFolders: [workspaceFolder],
-    getConfiguration: () => ({
-      get: (_key, fallback) => fallback,
+    getConfiguration: (section) => ({
+      get: (key, fallback) => configurationValues[section]?.[key] ?? fallback,
       update: async (key, value, target) => {
+        configurationValues[section] ??= {};
+        configurationValues[section][key] = value;
         configurationUpdates.push({ key, value, target });
       },
     }),
@@ -108,10 +124,6 @@ const vscode = {
       return disposable();
     },
     onDidSaveTextDocument: () => disposable(),
-    onDidChangeActiveTextEditor: (listener) => {
-      activeEditorListener = listener;
-      return disposable();
-    },
     onDidChangeConfiguration: (listener) => {
       configurationListener = listener;
       return disposable();
@@ -182,7 +194,6 @@ const { activate, deactivate } = require("../extension.js");
 async function test() {
   await activate({ subscriptions: { push: (...items) => subscriptions.push(...items) } });
   for (const command of [
-    "kelp.format",
     "kelp.check",
     "kelp.build",
     "kelp.members",
@@ -203,20 +214,36 @@ async function test() {
   assert.deepEqual(taskProviders, ["kelp:dynamic"]);
   assert.equal(starts.length, 0); // No Kelyra document is open yet.
 
-  // The token-color command writes Kelyra-scoped rules to the user's settings.
+  // The picker stores the scheme and writes only Kelyra-scoped rules.
   await commands.get("kelyra.applyTokenColors")();
-  assert.equal(configurationUpdates.length, 1);
-  assert.equal(configurationUpdates[0].key, "tokenColorCustomizations");
-  assert.equal(configurationUpdates[0].target, vscode.ConfigurationTarget.Global);
+  assert.equal(configurationUpdates.length, 2);
+  assert.deepEqual(configurationUpdates[0], {
+    key: "colorScheme",
+    value: "laevatain",
+    target: vscode.ConfigurationTarget.Global,
+  });
+  assert.equal(configurationUpdates[1].key, "tokenColorCustomizations");
+  assert.equal(configurationUpdates[1].target, vscode.ConfigurationTarget.Global);
   assert.ok(
-    configurationUpdates[0].value.textMateRules.some((rule) =>
+    configurationUpdates[1].value.textMateRules.some((rule) =>
       [].concat(rule.scope).includes("source.kelyra variable.other.readwrite"),
     ),
   );
+  await configurationListener({
+    affectsConfiguration: (section) => section === "kelyra.colorScheme",
+  });
   assert.ok(
-    configurationUpdates[0].value.textMateRules.some((rule) =>
+    configurationUpdates[1].value.textMateRules.some((rule) =>
       [].concat(rule.scope).includes("source.kelyra entity.name.function"),
     ),
+  );
+  vscode.window.activeColorTheme = { kind: vscode.ColorThemeKind.Light };
+  colorThemeListener(vscode.window.activeColorTheme);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(configurationUpdates.length, 3);
+  assert.equal(
+    configurationUpdates[2].value.textMateRules[0].settings.foreground,
+    "#76616B",
   );
 
   // The Projects view scans manifests when `kelp` cannot be run, nests members

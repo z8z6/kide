@@ -2,7 +2,7 @@
   "name": "kelyra",
   "displayName": "Kelyra",
   "description": "Kelyra language and Kelp project support",
-  "version": "0.10.0",
+  "version": "0.10.4",
   "publisher": "z8z6",
   "license": "MIT",
   "repository": {
@@ -101,25 +101,7 @@
         "editor.insertSpaces": true
       }
     },
-    "themes": [
-      {
-        "label": "Kelyra Dark",
-        "uiTheme": "vs-dark",
-        "path": "./themes/kelyra-dark-color-theme.json"
-      },
-      {
-        "label": "Kelyra Light",
-        "uiTheme": "vs",
-        "path": "./themes/kelyra-light-color-theme.json"
-      }
-    ],
     "commands": [
-      {
-        "command": "kelp.format",
-        "title": "Format Document",
-        "category": "Kelp",
-        "icon": "$(symbol-keyword)"
-      },
       {
         "command": "kelp.check",
         "title": "Kelp: Check",
@@ -177,7 +159,7 @@
       },
       {
         "command": "kelyra.applyTokenColors",
-        "title": "Apply Token Colors",
+        "title": "Select Color Scheme",
         "category": "Kelyra",
         "icon": "$(symbol-color)"
       }
@@ -235,14 +217,9 @@
     "menus": {
       "view/title": [
         {
-          "command": "kelp.format",
-          "when": "view == kelp.actions",
-          "group": "navigation@0"
-        },
-        {
           "command": "kelp.build",
           "when": "view == kelp.actions",
-          "group": "navigation@1"
+          "group": "navigation@0"
         },
         {
           "command": "kelp.debug",
@@ -331,20 +308,6 @@
           "when": "view == kelp.projects && viewItem == kelp.project",
           "group": "2_open@1"
         }
-      ],
-      "editor/title": [
-        {
-          "command": "kelp.format",
-          "when": "editorLangId == kelyra",
-          "group": "navigation@1"
-        }
-      ],
-      "editor/context": [
-        {
-          "command": "kelp.format",
-          "when": "editorLangId == kelyra",
-          "group": "1_modification@1"
-        }
       ]
     },
     "configuration": {
@@ -353,12 +316,29 @@
         "kelyra.formatter.path": {
           "type": "string",
           "default": "kelyra-format",
-          "description": "Path to the kelyra-format executable."
+          "description": "Path to kelyra-format. The default also searches build/bin and kelyra/build/bin in workspace ancestors."
         },
         "kelyra.languageServer.path": {
           "type": "string",
           "default": "kelyra-ls",
           "description": "Path to the kelyra-ls executable."
+        },
+        "kelyra.colorScheme": {
+          "type": "string",
+          "enum": [
+            "off",
+            "laevatain",
+            "jue",
+            "perlica"
+          ],
+          "enumDescriptions": [
+            "Use colors from the active VS Code theme.",
+            "Fiery red, molten gold, and violet inspired by Laevatain.",
+            "Cyan, jade, and silver inspired by Jue.",
+            "Electric blue, signal yellow, and silver inspired by Perlica."
+          ],
+          "default": "laevatain",
+          "description": "Kelyra-only syntax color scheme."
         },
         "kelp.path": {
           "type": "string",

@@ -18,8 +18,7 @@ workspace, and every import of a module.
 Highlighting covers annotations, compile-time `when`/`meta` reflection,
 prefix pointers, inline assembly chains, and wildcard imports.
 Functions, module paths, variables, parameters, class fields, and member
-accesses each have their own scope, so they are colored by the bundled themes
-and by any theme that styles these scopes:
+accesses each have their own scope, so they can be colored independently:
 
 | Element | Scope |
 | --- | --- |
@@ -42,9 +41,8 @@ Parameter-name inlay hints appear at call sites: set
 `kelyra.inlayHints.parameterNames` to `literals` (default), `all`, or `off`.
 Hints for other modules come from indexing the workspace `.kly` files. Hints are
 styled like inline code: `[kelyra]` defaults them to a smaller, padded font
-(change it with `"[kelyra]": { "editor.inlayHints.fontSize": ... }`), and the
-bundled themes give them a code-span background. With any other color theme, add
-the same colors to your settings:
+(change it with `"[kelyra]": { "editor.inlayHints.fontSize": ... }`). To give
+them a code-span background, add colors to your settings:
 
 ```json
 "workbench.colorCustomizations": {
@@ -56,30 +54,27 @@ the same colors to your settings:
 `.kly` and `kelp.toml` files have their own light and dark file icons, shown by
 the default file icon theme and by any theme that leaves the language to VS Code.
 
-Choose **Kelyra Dark** or **Kelyra Light** with **Preferences: Color Theme**.
-Both use VS Code's standard theme contribution, so users can override UI and
-syntax colors with `workbench.colorCustomizations` and
-`editor.tokenColorCustomizations`, including theme-specific `[Kelyra Dark]`
-or `[Kelyra Light]` entries.
-Identifier colors come from the active theme, and themes written for other
-languages can leave them plain: the Visual Studio C/C++ themes, for example,
-deliberately paint variables, functions, and namespaces with the default
-foreground. **Kelyra: Apply Token Colors** adds `source.kelyra`-scoped rules to
-your user settings, so variables, parameters, members, functions, and module
-paths are colored while every other language keeps the theme's own colors. It
-keeps unrelated customizations, replaces only the rules it applied before, and
-uses a light or dark palette chosen from the current theme, so run it again
-after switching between light and dark themes.
+Set `kelyra.colorScheme`, or run **Kelyra: Select Color Scheme**, to choose the
+Laevatain (莱万汀, default), Jue (诀), or Perlica (佩丽卡) palette. The extension adds only
+`source.kelyra`-scoped rules, so other languages and the VS Code interface keep
+their current theme. Each palette automatically follows light and dark theme
+changes. Choose `off` to remove the Kelyra rules and use the active theme's
+colors. `.kly` and `kelp.toml` use static geometric icons that do not change
+with the selected character palette.
 It also recognizes `kelp.toml`, provides field hover and completion for
 projects, `build.kind`, `[workspace]` members, and Git or local path
 dependencies, and adds a Kelp activity-bar view with format, compile, debug,
 run, test, package, and members actions. Compile and check tasks feed a
 contributed problem matcher, so `kelyra` diagnostics also appear in the
 Problems panel.
-**Format Document** (in the editor title bar and the editor's right-click menu)
-formats the current `.kly` document using its registered formatter, preserving
-VS Code's undo and unsaved edits.
-`[kelyra]` files default to this formatter and to format-on-save.
+VS Code's built-in **Format Document** command formats `.kly` files through
+`kelyra-format`, preserving undo and unsaved edits. The canonical style uses
+two-space indentation, one statement per line, spaces around binary operators
+and after commas, braces on the declaration or control-flow line, sorted and
+deduplicated imports, blank lines between top-level sections, and a final
+newline. `[kelyra]` files default to this formatter and to format-on-save. Set
+`kelyra.formatter.path` for custom installations; the default checks `PATH` and
+`build/bin` or `kelyra/build/bin` in the source file's ancestor directories.
 
 ### Projects view
 
