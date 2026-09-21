@@ -930,9 +930,13 @@ async function revealKelpProject(argument) {
 }
 
 // Resolves the configured artifact path for the project, which the status bar
-// and the `kelp.output` command both use.
+// and the `kelp.output` command both use. The result is deterministic for a
+// manifest, so it is cached per project directory.
+const kelpOutputPaths = new Map();
 async function kelpOutputPath(argument) {
   const project = projectFrom(argument) || (await projectContext());
+  const cached = kelpOutputPaths.get(project.cwd);
+  if (cached) return cached;
   const executable = vscode.workspace
     .getConfiguration("kelp", project.folder.uri)
     .get("path", "kelp");
@@ -944,6 +948,7 @@ async function kelpOutputPath(argument) {
   const artifact = stdout.replace(/\r?\n$/, "");
   if (!path.isAbsolute(artifact))
     throw new Error("kelp output did not return an absolute path. Update Kelp.");
+  kelpOutputPaths.set(project.cwd, artifact);
   return artifact;
 }
 
@@ -1258,6 +1263,13 @@ async function activate(context) {
     }),
     vscode.workspace.onDidSaveTextDocument((document) => {
       if (document.languageId === "kelyra") invalidateKelyraIndex();
+      else if (document.languageId === "kelp") {
+        // A manifest edit can change the artifact path shown in the status bar.
+        const directory = document.uri?.fsPath && path.dirname(document.uri.fsPath);
+        if (directory) kelpOutputPaths.delete(directory);
+        else kelpOutputPaths.clear();
+        void refreshKelpStatus();
+      }
     }),
     vscode.workspace.onDidChangeActiveTextEditor(() => void refreshKelpStatus()),
     vscode.workspace.onDidChangeConfiguration(async (event) => {
