@@ -100,7 +100,7 @@
         },
         {
           "name": "storage.modifier.kelyra",
-          "match": "\\b(let|pub|extern|parallel|meta|var)\\b"
+          "match": "\\b(let|const|pub|extern|parallel|meta|var)\\b"
         },
         {
           "name": "constant.language.boolean.kelyra",
@@ -144,7 +144,7 @@
         },
         {
           "name": "entity.name.function.lifecycle.kelyra",
-          "match": "\\b(init|deinit)(?=\\s*\\()"
+          "match": "\\b(init|deinit|copy|move)(?=\\s*\\()"
         },
         {
           "name": "support.function.asm.kelyra",

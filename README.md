@@ -39,8 +39,17 @@ Kelp manifests, and `[kelyra]`/`[kelp]` default to two-space indentation.
 Braces and block comments fold, and `kelp.toml` completes section headers.
 Parameter-name inlay hints appear at call sites: set
 `kelyra.inlayHints.parameterNames` to `literals` (default), `all`, or `off`.
-Hints for other modules come from indexing the workspace `.kly` files. Hints are
-styled like inline code: `[kelyra]` defaults them to a smaller, padded font
+Hints for other modules come from indexing workspace `.kly` files and the source
+trees of local Kelp path dependencies, including those outside the opened
+folder. Hints are
+available for the current file immediately; the cross-module index is refreshed
+in the background and cached in the workspace's `.kelp/kide-index.json` for
+later sessions. The cache is disposable and is rebuilt from source. Hovering a
+simple `const` declaration, its expression, or a reference to it shows the
+computed value when the editor can evaluate it safely. Code disabled by
+`@cfg(os="...", arch="...")` is dimmed according to `[build].target` in the
+nearest `kelp.toml`, falling back to the host target. Hints are styled like
+inline code: `[kelyra]` defaults them to a smaller, padded font
 (change it with `"[kelyra]": { "editor.inlayHints.fontSize": ... }`). To give
 them a code-span background, add colors to your settings:
 
@@ -50,6 +59,15 @@ them a code-span background, add colors to your settings:
   "editorInlayHint.parameterForeground": "#88C0D0"
 }
 ```
+
+The extension maintains a Tree-sitter syntax tree for each open `.kly` file.
+Text edits incrementally update that tree; hover, cfg dimming, and parameter
+hints reuse its tokens. Until the WASM parser finishes loading, the existing
+scanner remains available as a fallback. Semantic checks and navigation still
+come from the C++ compiler through `kelyra-ls`. The editor grammar is in
+`grammar/tree-sitter-kelyra`; run `npm run build:grammar` after changing it to
+regenerate `assets/tree-sitter-kelyra.wasm` (the Tree-sitter CLI may download a
+WASI SDK on the first build).
 
 `.kly` and `kelp.toml` files have their own light and dark file icons, shown by
 the default file icon theme and by any theme that leaves the language to VS Code.
@@ -121,9 +139,11 @@ npm test
 vsce package
 ```
 
-Build `kelyra-ls` and `kelyra-format`, install the generated VSIX, then set
-`kelyra.languageServer.path` and `kelyra.formatter.path` if the executables
-are not on `PATH`.
+Build `kelyra-ls` and `kelyra-format` and install the generated VSIX. The
+extension discovers `kelyra/build/bin/kelyra-ls` in a workspace ancestor; set
+`kelyra.languageServer.path` if it is installed elsewhere. Set
+`kelyra.formatter.path` if the formatter is not on `PATH` or in a workspace
+build directory.
 
 ## JetBrains
 

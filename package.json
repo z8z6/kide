@@ -22,7 +22,7 @@
     "onView:kelp.actions",
     "onView:kelp.projects"
   ],
-  "main": "./extension.js",
+  "main": "./src/extension.js",
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": false,
@@ -30,10 +30,15 @@
     }
   },
   "scripts": {
-    "test": "node --check extension.js && node test/smoke.js && node test/grammar.js && node test/debug.js && node test/activate.js"
+    "test": "node --check src/extension.js && node test/tree.js && node test/analysis.js && node test/smoke.js && node test/grammar.js && node test/debug.js && node test/activate.js",
+    "build:grammar": "cd grammar/tree-sitter-kelyra && tree-sitter generate && tree-sitter build --wasm --output ../../assets/tree-sitter-kelyra.wasm"
   },
   "contributes": {
-    "breakpoints": [{ "language": "kelyra" }],
+    "breakpoints": [
+      {
+        "language": "kelyra"
+      }
+    ],
     "languages": [
       {
         "id": "kelyra",
@@ -352,7 +357,9 @@
         },
         "kelp.debug.args": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Arguments passed to the program by Kelp: Debug."
         },
@@ -370,9 +377,11 @@
     }
   },
   "dependencies": {
-    "vscode-languageclient": "^10.1.1"
+    "vscode-languageclient": "^10.1.1",
+    "web-tree-sitter": "^0.25.10"
   },
   "devDependencies": {
+    "tree-sitter-cli": "^0.26.13",
     "vscode-oniguruma": "^2.0.1",
     "vscode-textmate": "^9.3.2"
   }

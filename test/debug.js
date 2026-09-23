@@ -52,7 +52,7 @@ Module._load = function (request, parent, main) {
   } };
   return load(request, parent, main);
 };
-const { debugKelp, kelpActions, runKelp } = require("../extension.js");
+const { debugKelp, kelpActions, runKelp } = require("../src/extension.js");
 Module._load = load;
 
 async function test() {

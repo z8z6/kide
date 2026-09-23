@@ -187,7 +187,7 @@ Module._load = function (request, parent, main) {
   return load(request, parent, main);
 };
 
-const { activate, deactivate } = require("../extension.js");
+const { activate, deactivate } = require("../src/extension.js");
 // The loader override stays installed: startLanguageServer requires the
 // client lazily, after this module has loaded.
 
@@ -268,7 +268,8 @@ async function test() {
   assert.ok(statusItem.shown);
 
   openListener({ languageId: "kelyra" });
-  await new Promise((resolve) => setImmediate(resolve));
+  for (let attempt = 0; starts.length === 0 && attempt < 30; ++attempt)
+    await new Promise((resolve) => setTimeout(resolve, 10));
   assert.deepEqual(starts, ["kelyra-ls"]);
   assert.equal(stops.length, 0);
 
@@ -277,10 +278,15 @@ async function test() {
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(stops.length, 0);
   vscode.workspace.textDocuments.push({ languageId: "kelyra" });
+  const builtServer = path.join(projectRoot, "kelyra/build/bin/kelyra-ls");
+  fs.mkdirSync(path.dirname(builtServer), { recursive: true });
+  fs.writeFileSync(builtServer, "");
   configurationListener({ affectsConfiguration: (section) => section === "kelyra.languageServer.path" });
-  await new Promise((resolve) => setImmediate(resolve));
+  for (let attempt = 0; starts.length < 2 && attempt < 30; ++attempt)
+    await new Promise((resolve) => setTimeout(resolve, 10));
   assert.deepEqual(stops, ["kelyra"]);
   assert.equal(starts.length, 2);
+  assert.equal(starts[1], builtServer);
 
   await deactivate();
   assert.deepEqual(stops, ["kelyra", "kelyra"]);

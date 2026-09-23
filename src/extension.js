@@ -6,9 +6,13 @@ const os = require("node:os");
 const path = require("node:path");
 const { promisify } = require("node:util");
 const vscode = require("vscode");
+const { constantExpressions, inactiveCfgRanges } = require("./kelyra-analysis");
+const { readIndex, writeIndex } = require("./kelyra-index");
+const { KelyraTree } = require("./kelyra-tree");
 const execFile = promisify(childProcess.execFile);
 
 let client;
+const kelyraTree = new KelyraTree();
 
 const kelyraTypes = {
   i8: "8-bit signed integer.",
@@ -96,9 +100,21 @@ function kelyraSymbolAt(line, character) {
 }
 
 function provideKelyraHover(document, position) {
+  const source = document.getText();
+  const tokens = kelyraTree.snapshot(document, scanKelyra).tokens;
   const symbol = kelyraSymbolAt(document.lineAt(position.line).text, position.character);
+  const offset = source.split("\n").slice(0, position.line).reduce((sum, line) =>
+    sum + line.length + 1, position.character);
+  const expressions = constantExpressions(tokens);
+  const expression = expressions.find(({ start, end }) =>
+    start <= offset && offset < end);
+  if (expression)
+    return new vscode.Hover(`**${expression.name}** = \`${String(expression.value)}\` (compile-time constant)`);
   if (!symbol) return undefined;
   const name = symbol.startsWith("@") ? symbol.slice(1) : symbol;
+  const constants = new Map(expressions.map(({ name, value }) => [name, value]));
+  if (constants.has(name))
+    return new vscode.Hover(`**${name}** = \`${String(constants.get(name))}\` (compile-time constant)`);
   if (kelyraTypes[name]) return new vscode.Hover(`**${name}**\n\n${kelyraTypes[name]}`);
   if (classKeywords[name]) return new vscode.Hover(`**${name}**\n\n${classKeywords[name]}`);
   if (languageKeywords[name])
@@ -428,9 +444,9 @@ function resolveKelyraCall(call, current, index, locals) {
 
 // Returns `{ offset, name }` for every argument that should show its parameter
 // name. Literal-only mode keeps hints on numbers, strings, and booleans.
-function kelyraParameterHints(text, index, mode) {
+function kelyraParameterHints(text, index, mode, knownTokens) {
   if (mode === "off") return [];
-  const { tokens } = scanKelyra(text);
+  const tokens = knownTokens || scanKelyra(text).tokens;
   const current = parseKelyraTokens(tokens);
   const locals = collectKelyraLocals(tokens);
   const hints = [];
@@ -497,15 +513,67 @@ function provideKelyraFoldingRanges(document) {
 }
 
 let kelyraIndexPromise;
+let kelyraIndexGeneration = 0;
+let kelyraIndexRefresh;
+let inlayHintsChanged;
+let inactiveCfgDecoration;
+let cfgRefreshTimer;
+
+function targetFromTriple(triple = "") {
+  const lower = triple.toLowerCase();
+  return {
+    os: lower.includes("windows") || lower.includes("win32") ? "windows" :
+      lower.includes("linux") ? "linux" : lower.includes("darwin") ? "macos" :
+        os.platform() === "win32" ? "windows" : os.platform() === "darwin" ? "macos" : "linux",
+    arch: lower.startsWith("aarch64") || lower.startsWith("arm64") ? "aarch64" :
+      lower.startsWith("x86_64") || lower.startsWith("amd64") ? "x86_64" :
+        os.arch() === "arm64" ? "aarch64" : os.arch() === "x64" ? "x86_64" : os.arch(),
+  };
+}
+
+async function targetForDocument(document) {
+  const file = document.uri?.fsPath;
+  if (!file) return targetFromTriple();
+  const folder = vscode.workspace.getWorkspaceFolder?.(document.uri)?.uri.fsPath;
+  for (let directory = path.dirname(file); ; directory = path.dirname(directory)) {
+    try {
+      const manifest = await fs.readFile(path.join(directory, "kelp.toml"), "utf8");
+      const build = manifest.split(/^\s*\[(?!build\])[^\]]+\]\s*$/m)
+        .find((section) => /^\s*\[build\]/m.test(section)) || "";
+      const triple = build.match(/^\s*target\s*=\s*"([^"]+)"/m)?.[1];
+      if (triple) return targetFromTriple(triple);
+    } catch { /* Keep looking for an enclosing Kelp project. */ }
+    if (directory === folder || path.dirname(directory) === directory) break;
+  }
+  return targetFromTriple();
+}
+
+async function refreshCfgDecorations(editor) {
+  if (!editor || editor.document.languageId !== "kelyra" || !inactiveCfgDecoration) return;
+  const document = editor.document;
+  const target = await targetForDocument(document);
+  if (editor.document !== document) return;
+  const { tokens } = kelyraTree.snapshot(document, scanKelyra);
+  const ranges = inactiveCfgRanges(tokens, document.getText(), target).map(({ start, end }) =>
+    new vscode.Range(document.positionAt(start), document.positionAt(end)));
+  editor.setDecorations(inactiveCfgDecoration, ranges);
+}
+
+function scheduleCfgRefresh(editor = vscode.window.activeTextEditor) {
+  if (cfgRefreshTimer) clearTimeout(cfgRefreshTimer);
+  cfgRefreshTimer = setTimeout(() => void refreshCfgDecorations(editor), 100);
+}
 
 function invalidateKelyraIndex() {
+  ++kelyraIndexGeneration;
   kelyraIndexPromise = undefined;
 }
 
-// Indexes open documents first so unsaved edits win over the files on disk.
-async function loadKelyraIndex() {
+// Reads persisted sources; open documents are merged over this index by the provider.
+async function scanWorkspaceIndex() {
   const modules = new Map();
   const extras = [];
+  const visitedDependencies = new Set();
   const record = (text) => {
     const parsed = parseKelyraModule(text);
     if (parsed.module) {
@@ -514,8 +582,6 @@ async function loadKelyraIndex() {
       extras.push(parsed);
     }
   };
-  for (const document of vscode.workspace.textDocuments)
-    if (document.languageId === "kelyra") record(document.getText());
   try {
     const files = await vscode.workspace.findFiles(
       "**/*.kly",
@@ -524,10 +590,81 @@ async function loadKelyraIndex() {
     );
     for (const file of files)
       record(Buffer.from(await vscode.workspace.fs.readFile(file)).toString("utf8"));
+    if (vscode.workspace.workspaceFolders?.length) {
+      const manifests = await vscode.workspace.findFiles(
+        "**/kelp.toml", "**/{node_modules,build,.git}/**",
+      );
+      const walkDependency = async (directory) => {
+        directory = path.resolve(directory);
+        if (visitedDependencies.has(directory)) return;
+        visitedDependencies.add(directory);
+        let entries;
+        try { entries = await fs.readdir(directory, { withFileTypes: true }); }
+        catch { return; }
+        for (const entry of entries) {
+          const file = path.join(directory, entry.name);
+          if (entry.isDirectory()) {
+            if ([".git", "build", "node_modules", ".kelp"].includes(entry.name)) continue;
+            await walkDependency(file);
+          } else if (entry.name.endsWith(".kly")) {
+            try { record(await fs.readFile(file, "utf8")); } catch { /* Unreadable source. */ }
+          } else if (entry.name === "kelp.toml") {
+            try {
+              const manifest = parseKelpManifest(await fs.readFile(file, "utf8"));
+              for (const dependency of manifest.paths)
+                await walkDependency(path.resolve(directory, dependency));
+            } catch { /* Invalid or unreadable manifest. */ }
+          }
+        }
+      };
+      for (const uri of manifests) {
+        const file = uri.fsPath;
+        if (!file) continue;
+        try {
+          const manifest = parseKelpManifest(await fs.readFile(file, "utf8"));
+          for (const dependency of manifest.paths)
+            await walkDependency(path.resolve(path.dirname(file), dependency));
+        } catch { /* Invalid or unreadable manifest. */ }
+      }
+    }
   } catch {
     // A missing workspace or unreadable file only limits cross-module hints.
   }
-  return buildKelyraIndex([...modules.values(), ...extras]);
+  return [...modules.values(), ...extras];
+}
+
+async function loadKelyraIndex() {
+  const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const generation = kelyraIndexGeneration;
+  const cached = await readIndex(root);
+  const refresh = async () => {
+    const parsed = await scanWorkspaceIndex();
+    if (generation !== kelyraIndexGeneration) return;
+    const index = buildKelyraIndex(parsed);
+    kelyraIndexPromise = Promise.resolve(index);
+    inlayHintsChanged?.fire();
+    try { await writeIndex(root, parsed); } catch { /* Cache is optional. */ }
+    return index;
+  };
+  if (cached) {
+    if (!kelyraIndexRefresh) {
+      kelyraIndexRefresh = refresh().catch(() => {}).finally(() => {
+        kelyraIndexRefresh = undefined;
+      });
+    }
+    return buildKelyraIndex(cached);
+  }
+  // On a first project open, local hints work immediately. The workspace scan
+  // populates imported signatures and the persistent cache in the background.
+  if (root) {
+    if (!kelyraIndexRefresh) {
+      kelyraIndexRefresh = refresh().catch(() => {}).finally(() => {
+        kelyraIndexRefresh = undefined;
+      });
+    }
+    return buildKelyraIndex([]);
+  }
+  return buildKelyraIndex(await scanWorkspaceIndex());
 }
 
 async function provideKelyraInlayHints(document, range) {
@@ -536,11 +673,17 @@ async function provideKelyraInlayHints(document, range) {
     .get("inlayHints.parameterNames", "literals");
   if (mode === "off") return [];
   if (!kelyraIndexPromise) kelyraIndexPromise = loadKelyraIndex();
-  const index = await kelyraIndexPromise;
+  const cached = await kelyraIndexPromise;
+  const open = vscode.workspace.textDocuments
+    .filter(({ languageId }) => languageId === "kelyra")
+    .map((item) => parseKelyraModule(item.getText()));
+  const openNames = new Set(open.map(({ module }) => module).filter(Boolean));
+  const index = buildKelyraIndex([...open,
+    ...[...cached.modules.values()].filter(({ module }) => !openNames.has(module))]);
   const text = document.getText();
-  const { positionAt } = scanKelyra(text);
+  const { tokens, positionAt } = kelyraTree.snapshot(document, scanKelyra);
   const hints = [];
-  for (const hint of kelyraParameterHints(text, index, mode)) {
+  for (const hint of kelyraParameterHints(text, index, mode, tokens)) {
     const position = positionAt(hint.offset);
     if (
       position.line < range.start.line ||
@@ -694,6 +837,7 @@ function parseKelpManifest(text) {
     entry: "",
     output: "",
     members: [],
+    paths: [],
   };
   let section = "";
   for (const line of text.split(/\r?\n/)) {
@@ -716,6 +860,8 @@ function parseKelpManifest(text) {
       else if (key === "output" && strings.length) manifest.output = strings[0];
     } else if (section === "workspace" && key === "members") {
       manifest.members = strings;
+    } else if (section.startsWith("dependencies.") && key === "path" && strings.length) {
+      manifest.paths.push(strings[0]);
     }
   }
   if (!manifest.output)
@@ -1365,9 +1511,29 @@ async function format(document, _options, token) {
 async function startLanguageServer() {
   if (client) return;
   const { LanguageClient, TransportKind } = require("vscode-languageclient/node");
-  const command = vscode.workspace
+  const configured = vscode.workspace
     .getConfiguration("kelyra")
     .get("languageServer.path", "kelyra-ls");
+  let command = configured;
+  if (configured === "kelyra-ls") {
+    const executable = process.platform === "win32" ? "kelyra-ls.exe" : "kelyra-ls";
+    for (const folder of vscode.workspace.workspaceFolders || []) {
+      for (let directory = folder.uri.fsPath; directory; directory = path.dirname(directory)) {
+        for (const candidate of [
+          path.join(directory, "build", "bin", executable),
+          path.join(directory, "kelyra", "build", "bin", executable),
+        ]) {
+          try {
+            await fs.access(candidate);
+            command = candidate;
+            break;
+          } catch { /* Check the next workspace build. */ }
+        }
+        if (command !== configured || path.dirname(directory) === directory) break;
+      }
+      if (command !== configured) break;
+    }
+  }
   client = new LanguageClient(
     "kelyra",
     "Kelyra Language Server",
@@ -1379,6 +1545,20 @@ async function startLanguageServer() {
 
 async function activate(context) {
   const projects = new KelpProjectTreeProvider();
+  void kelyraTree.initialize(path.join(__dirname, "..", "assets", "tree-sitter-kelyra.wasm"))
+    .then(() => {
+      inlayHintsChanged?.fire();
+      scheduleCfgRefresh();
+    })
+    .catch((error) => console.warn("Kelyra Tree-sitter initialization failed:", error));
+  if (vscode.EventEmitter) {
+    inlayHintsChanged = new vscode.EventEmitter();
+    context.subscriptions.push(inlayHintsChanged);
+  }
+  if (vscode.window.createTextEditorDecorationType) {
+    inactiveCfgDecoration = vscode.window.createTextEditorDecorationType({ opacity: "0.45" });
+    context.subscriptions.push(inactiveCfgDecoration);
+  }
   kelpStatus = vscode.window.createStatusBarItem(
     (vscode.StatusBarAlignment && vscode.StatusBarAlignment.Left) || 1,
     100,
@@ -1400,6 +1580,7 @@ async function activate(context) {
     }),
     vscode.languages.registerInlayHintsProvider("kelyra", {
       provideInlayHints: provideKelyraInlayHints,
+      onDidChangeInlayHints: inlayHintsChanged?.event,
     }),
   );
   context.subscriptions.push(
@@ -1454,8 +1635,24 @@ async function activate(context) {
   );
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument((document) => {
-      if (document.languageId === "kelyra") void startLanguageServer();
+      if (document.languageId === "kelyra") {
+        void startLanguageServer();
+        scheduleCfgRefresh();
+      }
     }),
+    ...(vscode.workspace.onDidChangeTextDocument ? [vscode.workspace.onDidChangeTextDocument(
+      (event) => {
+        const { document } = event;
+        if (document.languageId === "kelyra") {
+          kelyraTree.change(event);
+          inlayHintsChanged?.fire();
+          scheduleCfgRefresh();
+        }
+      },
+    )] : []),
+    ...(vscode.workspace.onDidCloseTextDocument ? [vscode.workspace.onDidCloseTextDocument(
+      (document) => kelyraTree.close(document),
+    )] : []),
     vscode.workspace.onDidSaveTextDocument((document) => {
       if (document.languageId === "kelyra") invalidateKelyraIndex();
       else if (document.languageId === "kelp") {
@@ -1464,11 +1661,16 @@ async function activate(context) {
         if (directory) kelpOutputPaths.delete(directory);
         else kelpOutputPaths.clear();
         void refreshKelpStatus();
+        scheduleCfgRefresh();
       }
     }),
-    vscode.window.onDidChangeActiveTextEditor(() => void refreshKelpStatus()),
+    vscode.window.onDidChangeActiveTextEditor(() => {
+      void refreshKelpStatus();
+      scheduleCfgRefresh();
+    }),
     vscode.window.onDidChangeActiveColorTheme(() => void applyKelyraTokenColors(false)),
     vscode.workspace.onDidChangeConfiguration(async (event) => {
+      if (event.affectsConfiguration("kelyra")) scheduleCfgRefresh();
       if (event.affectsConfiguration("kelyra.colorScheme")) {
         await applyKelyraTokenColors(false);
       } else if (event.affectsConfiguration("kelyra.languageServer.path")) {
@@ -1486,9 +1688,12 @@ async function activate(context) {
   if (vscode.workspace.textDocuments.some(({ languageId }) => languageId === "kelyra"))
     await startLanguageServer();
   void refreshKelpStatus();
+  scheduleCfgRefresh();
 }
 
 async function deactivate() {
+  if (cfgRefreshTimer) clearTimeout(cfgRefreshTimer);
+  kelyraTree.dispose();
   if (client) {
     await client.stop();
     client = undefined;

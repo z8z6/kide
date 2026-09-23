@@ -4,4 +4,5 @@ AGENTS.md
 .gradle/**
 jetbrains/**
 test/**
+grammar/**
 *.vsix

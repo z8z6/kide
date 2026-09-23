@@ -17,7 +17,7 @@ const language = JSON.parse(
 const kelpGrammar = JSON.parse(
   fs.readFileSync(path.join(root, "syntaxes/kelp.tmLanguage.json")),
 );
-const extension = fs.readFileSync(path.join(root, "extension.js"), "utf8");
+const extension = fs.readFileSync(path.join(root, "src/extension.js"), "utf8");
 const jetbrainsBundle = JSON.parse(
   fs.readFileSync(path.join(root, "jetbrains/textmate/package.json")),
 );
@@ -251,7 +251,7 @@ const {
   provideKelyraHover,
   provideKelyraInlayHints,
   scanKelpProjects,
-} = require("../extension.js");
+} = require("../src/extension.js");
 const kelp = "[build]\nsafe-level = 1\n\n[dependencies.kstd]\nrepository = \"git@example\"\n";
 assert.equal(kelpSectionAt(kelp, 3), "dependencies");
 assert.equal(kelpFieldAt(kelp, 1, 3)[2], "Kelyra runtime safety level.");
@@ -280,6 +280,15 @@ for (const annotation of ["@target", "@repeatable", "@retention", "@route"])
   assert.ok(completions.some(({ label, documentation }) => label === annotation && documentation));
 assert.match(provideKelyraHover(document, { line: 2, character: 3 }).contents, /User-defined/);
 assert.match(provideKelyraHover(document, { line: 3, character: 12 }).contents, /Pointer-sized/);
+const constantSource = "const COUNT: i32 = 6 * 7;\nfn use() -> i32 { return COUNT; }";
+assert.match(provideKelyraHover({
+  getText: () => constantSource,
+  lineAt: (line) => ({ text: constantSource.split("\n")[line] }),
+}, { line: 1, character: 30 }).contents, /COUNT.*42/);
+assert.match(provideKelyraHover({
+  getText: () => constantSource,
+  lineAt: (line) => ({ text: constantSource.split("\n")[line] }),
+}, { line: 0, character: 23 }).contents, /COUNT.*42/);
 assert.equal(manifest.version, "0.10.4");
 assert.deepEqual(formatterCandidates({ uri: {} }, "/tools/kelyra-format"), [
   "/tools/kelyra-format",
@@ -528,6 +537,9 @@ assert.equal(kelpArtifactPath("math.o", "libs/math"), ".kelp/build/libs/math/mat
 assert.equal(kelpArtifactPath("build/app", "app"), ".kelp/build/app/app");
 assert.equal(kelpArtifactPath("app", "."), ".kelp/build/app");
 assert.equal(parseKelpManifest("[workspace]\nmembers = []\n").hasProject, false);
+assert.deepEqual(parseKelpManifest(
+  '[dependencies.kstd]\npath = "../../kstd"\n',
+).paths, ["../../kstd"]);
 
 const tree = kelpProjectTree([
   { dir: ".", name: "root", buildKind: "executable", output: ".kelp/build/root" },
