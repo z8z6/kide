@@ -21,6 +21,8 @@ const subscriptions = [];
 const commands = new Map();
 const disposables = [];
 const providers = [];
+let inheritanceProvider;
+let shownDocument;
 const taskProviders = [];
 const treeProviders = new Map();
 const configurationUpdates = [];
@@ -70,6 +72,11 @@ const vscode = {
       providers.push(`inlay:${language}`);
       return disposable();
     },
+    registerCodeLensProvider: (language, provider) => {
+      providers.push(`codelens:${language}`);
+      inheritanceProvider = provider;
+      return disposable();
+    },
   },
   window: {
     registerTreeDataProvider: (id, provider) => {
@@ -81,6 +88,10 @@ const vscode = {
     showErrorMessage: async () => undefined,
     showInformationMessage: async () => undefined,
     showQuickPick: async (items) => items[0],
+    showTextDocument: async (document, options) => {
+      shownDocument = { document, options };
+      return shownDocument;
+    },
     activeTextEditor: undefined,
     activeColorTheme: { kind: 2 },
     onDidChangeActiveColorTheme: (listener) => {
@@ -111,6 +122,11 @@ const vscode = {
     isTrusted: false,
     textDocuments: [],
     workspaceFolders: [workspaceFolder],
+    findFiles: async () => ["base.kly", "child.kly"].map((name) => vscode.Uri.file(path.join(projectRoot, name))),
+    fs: { readFile: async (uri) => fs.readFileSync(uri.fsPath) },
+    openTextDocument: async (uri) => ({ uri,
+      languageId: "kelyra", getText: () => fs.readFileSync(uri.fsPath, "utf8") }),
+    asRelativePath: (uri) => path.relative(projectRoot, uri.fsPath),
     getConfiguration: (section) => ({
       get: (key, fallback) => configurationValues[section]?.[key] ?? fallback,
       update: async (key, value, target) => {
@@ -159,7 +175,17 @@ const vscode = {
       this.value = value;
     }
   },
-  Uri: { file: (fsPath) => ({ scheme: "file", fsPath }) },
+  Uri: { file: (fsPath) => ({ scheme: "file", fsPath,
+    toString: () => `file://${fsPath}` }) },
+  Position: class Position {
+    constructor(line, character) { Object.assign(this, { line, character }); }
+  },
+  Range: class Range {
+    constructor(...positions) { this.positions = positions; }
+  },
+  CodeLens: class CodeLens {
+    constructor(range, command) { Object.assign(this, { range, command }); }
+  },
 };
 
 class LanguageClient {
@@ -192,6 +218,9 @@ const { activate, deactivate } = require("../src/extension.js");
 // client lazily, after this module has loaded.
 
 async function test() {
+  fs.writeFileSync(path.join(projectRoot, "base.kly"), "module demo;\nclass Base<T> {}\n");
+  fs.writeFileSync(path.join(projectRoot, "child.kly"),
+    "module demo;\nclass Child<T>: Base<T> {}\n");
   await activate({ subscriptions: { push: (...items) => subscriptions.push(...items) } });
   for (const command of [
     "kelp.check",
@@ -202,16 +231,25 @@ async function test() {
     "kelp.revealProject",
     "kelp.output",
     "kelyra.applyTokenColors",
+    "kelyra.showInheritors",
   ])
     assert.ok(commands.has(command), command);
   assert.deepEqual(providers, [
     "folding:kelyra",
     "inlay:kelyra",
+    "codelens:kelyra",
     "definition:kelp",
     "tree:kelp.projects",
     "tree:kelp.actions",
   ]);
   assert.deepEqual(taskProviders, ["kelp:dynamic"]);
+  const baseDocument = await vscode.workspace.openTextDocument(vscode.Uri.file(path.join(projectRoot, "base.kly")));
+  const lenses = await inheritanceProvider.provideCodeLenses(baseDocument);
+  assert.equal(lenses.length, 1);
+  assert.match(lenses[0].command.title, /1 inheriting class/);
+  await commands.get("kelyra.showInheritors")(...lenses[0].command.arguments);
+  assert.equal(shownDocument.document.uri.fsPath, path.join(projectRoot, "child.kly"));
+  assert.deepEqual(shownDocument.options.selection.positions, [1, 6, 1, 11]);
   assert.equal(starts.length, 0); // No Kelyra document is open yet.
 
   // The picker stores the scheme and writes only Kelyra-scoped rules.

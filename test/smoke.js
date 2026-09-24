@@ -237,6 +237,7 @@ const {
   kelpProjectTree,
   kelpSectionAt,
   kelyraParameterHints,
+  kelyraDescendants,
   kelyraSymbolAt,
   kelyraTokenColors,
   languageKeywords,
@@ -244,6 +245,7 @@ const {
   parseKelpManifest,
   parseKelpMembers,
   parseKelyraModule,
+  parseKelyraInheritance,
   provideKelpCompletions,
   provideKelpDefinition,
   provideKelyraCompletions,
@@ -257,6 +259,22 @@ assert.equal(kelpSectionAt(kelp, 3), "dependencies");
 assert.equal(kelpFieldAt(kelp, 1, 3)[2], "Kelyra runtime safety level.");
 assert.equal(kelpFieldAt(kelp, 4, 4)[0], "repository");
 const kelyra = "// annotation ignored();\nannotation route(path: meta.string);\n@route\nlet size: usize;";
+const inheritanceSources = [
+  ["base.kly", "module demo.base;\n@interface\npub class Base<T> {}\nclass Extra<T> {}\n"],
+  ["middle.kly", "module demo.middle;\nimport demo.base.*;\nclass Middle<T>: Base<T>, Extra<map.List<T, T>> {}\n"],
+  ["leaf.kly", "module demo.leaf;\nimport demo.middle;\nclass Leaf: demo.middle.Middle<i32> {}\n"],
+  ["other.kly", "module other;\nclass Base {}\nclass Unrelated: Base {}\n"],
+];
+const inheritingClasses = inheritanceSources.flatMap(([file, source]) =>
+  parseKelyraInheritance(source, { toString: () => file }));
+assert.deepEqual(kelyraDescendants(inheritingClasses, inheritingClasses[0]).map(({ name }) => name),
+  ["Leaf", "Middle"]);
+assert.deepEqual(kelyraDescendants(inheritingClasses, inheritingClasses[1]).map(({ name }) => name),
+  ["Leaf", "Middle"]);
+assert.deepEqual(kelyraDescendants(inheritingClasses, inheritingClasses[4]).map(({ name }) => name),
+  ["Unrelated"]);
+assert.deepEqual(inheritingClasses[2].bases, ["Base", "Extra"]);
+assert.deepEqual(inheritingClasses[3].bases, ["demo.middle.Middle"]);
 const document = {
   getText: () => kelyra,
   lineAt: (line) => ({ text: kelyra.split("\n")[line] }),

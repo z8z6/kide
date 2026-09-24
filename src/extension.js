@@ -68,6 +68,8 @@ const classKeywords = {
 const languageKeywords = {
   let: "Declares a local with a type, an initial value, or both.",
   fn: "Declares a function.",
+  type: "Declares a distinct scalar type with the representation of its underlying type.",
+  alias: "Declares another name for an existing type.",
   pub: "Exports a declaration to importing modules.",
   module: "Declares this file's module.",
   import: "Loads a module. Add `.*` to call its public functions unqualified, or use `import c \"header.h\"` for C headers.",
@@ -274,8 +276,10 @@ function parseKelyraTokens(tokens) {
       while (cursor < tokens.length) {
         if (tokens[cursor].kind === "name") { parts.push(tokens[cursor].text); ++cursor; continue; }
         if (tokens[cursor].text === ".") {
-          if (tokens[cursor + 1]?.text === "*") wildcard = true;
-          cursor += 2;
+          if (tokens[cursor + 1]?.text === "*") {
+            wildcard = true;
+            cursor += 2;
+          } else ++cursor;
           continue;
         }
         break;
@@ -516,8 +520,147 @@ let kelyraIndexPromise;
 let kelyraIndexGeneration = 0;
 let kelyraIndexRefresh;
 let inlayHintsChanged;
+let inheritanceLensesChanged;
 let inactiveCfgDecoration;
 let cfgRefreshTimer;
+
+function parseKelyraInheritance(text, uri) {
+  const { tokens, positionAt } = scanKelyra(text);
+  const parsed = parseKelyraTokens(tokens);
+  const classes = [];
+  const skipTypeArguments = (start) => {
+    if (tokens[start]?.text !== "<") return start;
+    let depth = 0;
+    for (let cursor = start; cursor < tokens.length; ++cursor) {
+      if (tokens[cursor].text === "<") ++depth;
+      else if (tokens[cursor].text === ">" && --depth === 0) return cursor + 1;
+    }
+    return tokens.length;
+  };
+  for (let index = 0; index < tokens.length - 1; ++index) {
+    if (tokens[index].text !== "class" || tokens[index + 1].kind !== "name") continue;
+    const name = tokens[index + 1].text;
+    const bases = [];
+    let cursor = skipTypeArguments(index + 2);
+    if (tokens[cursor]?.text === ":") {
+      ++cursor;
+      while (cursor < tokens.length && tokens[cursor].text !== "{") {
+        const parts = [];
+        if (tokens[cursor]?.kind !== "name") break;
+        parts.push(tokens[cursor++].text);
+        while (tokens[cursor]?.text === "." && tokens[cursor + 1]?.kind === "name") {
+          cursor++;
+          parts.push(tokens[cursor++].text);
+        }
+        bases.push(parts.join("."));
+        cursor = skipTypeArguments(cursor);
+        if (tokens[cursor]?.text !== ",") break;
+        ++cursor;
+      }
+    }
+    classes.push({ name, module: parsed.module, imports: parsed.imports, bases,
+      uri, position: positionAt(tokens[index + 1].offset) });
+    // The lexer also sees method bodies. Skip the class to avoid a `class`
+    // token in an expression being treated as another declaration.
+    while (cursor < tokens.length && tokens[cursor].text !== "{") ++cursor;
+    if (tokens[cursor]?.text === "{") {
+      let depth = 1;
+      while (depth && ++cursor < tokens.length)
+        depth += tokens[cursor].text === "{" ? 1 : tokens[cursor].text === "}" ? -1 : 0;
+      index = cursor;
+    }
+  }
+  return classes;
+}
+
+function kelyraDescendants(classes, parent) {
+  const byName = new Map();
+  const byModule = new Map();
+  for (const item of classes) {
+    const list = byName.get(item.name) || [];
+    list.push(item);
+    byName.set(item.name, list);
+    byModule.set(`${item.module}.${item.name}`, item);
+  }
+  const children = new Map(classes.map((item) => [item, []]));
+  for (const child of classes) for (const base of child.bases) {
+    let target;
+    if (base.includes(".")) target = byModule.get(base);
+    else {
+      target = byModule.get(`${child.module}.${base}`);
+      if (!target) {
+        const imports = child.imports.filter(({ wildcard }) => wildcard)
+          .map(({ name }) => byModule.get(`${name}.${base}`)).filter(Boolean);
+        if (imports.length === 1) target = imports[0];
+      }
+      if (!target && byName.get(base)?.length === 1) target = byName.get(base)[0];
+    }
+    if (target && target !== child) children.get(target).push(child);
+  }
+  const found = [];
+  const visited = new Set([parent]);
+  const pending = [...(children.get(parent) || [])];
+  while (pending.length) {
+    const item = pending.shift();
+    if (visited.has(item)) continue;
+    visited.add(item);
+    found.push(item);
+    pending.push(...children.get(item));
+  }
+  return found.sort((a, b) => `${a.module}.${a.name}`.localeCompare(`${b.module}.${b.name}`));
+}
+
+async function workspaceInheritanceClasses(document) {
+  const sources = new Map();
+  try {
+    for (const uri of await vscode.workspace.findFiles("**/*.kly", "**/{node_modules,build,.git}/**")) {
+      const key = uri.toString();
+      sources.set(key, { uri, text: Buffer.from(await vscode.workspace.fs.readFile(uri)).toString("utf8") });
+    }
+  } catch { /* A file may disappear while the workspace is being scanned. */ }
+  for (const open of vscode.workspace.textDocuments) {
+    if (open.languageId === "kelyra")
+      sources.set(open.uri.toString(), { uri: open.uri, text: open.getText() });
+  }
+  sources.set(document.uri.toString(), { uri: document.uri, text: document.getText() });
+  return [...sources.values()].flatMap(({ uri, text }) => parseKelyraInheritance(text, uri));
+}
+
+async function provideKelyraInheritanceLenses(document) {
+  const classes = await workspaceInheritanceClasses(document);
+  return classes.filter((item) => item.uri.toString() === document.uri.toString())
+    .flatMap((item) => {
+      const descendants = kelyraDescendants(classes, item);
+      if (!descendants.length) return [];
+      const position = new vscode.Position(item.position.line, item.position.character);
+      return [new vscode.CodeLens(new vscode.Range(position, position), {
+        title: `$(type-hierarchy) ${descendants.length} inheriting ${descendants.length === 1 ? "class" : "classes"}`,
+        command: "kelyra.showInheritors",
+        arguments: [item.uri, item.position],
+      })];
+    });
+}
+
+async function showKelyraInheritors(uri, position) {
+  const document = await vscode.workspace.openTextDocument(uri);
+  const classes = await workspaceInheritanceClasses(document);
+  const parent = classes.find((item) => item.uri.toString() === uri.toString() &&
+    item.position.line === position.line && item.position.character === position.character);
+  if (!parent) return;
+  const descendants = kelyraDescendants(classes, parent);
+  const selected = await vscode.window.showQuickPick(descendants.map((item) => ({
+    label: item.name,
+    description: item.module || vscode.workspace.asRelativePath(item.uri),
+    detail: vscode.workspace.asRelativePath(item.uri),
+    item,
+  })), { placeHolder: `Classes inheriting ${parent.name}` });
+  if (!selected) return;
+  const target = await vscode.workspace.openTextDocument(selected.item.uri);
+  const at = selected.item.position;
+  await vscode.window.showTextDocument(target, {
+    selection: new vscode.Range(at.line, at.character, at.line, at.character + selected.item.name.length),
+  });
+}
 
 function targetFromTriple(triple = "") {
   const lower = triple.toLowerCase();
@@ -1554,6 +1697,8 @@ async function activate(context) {
   if (vscode.EventEmitter) {
     inlayHintsChanged = new vscode.EventEmitter();
     context.subscriptions.push(inlayHintsChanged);
+    inheritanceLensesChanged = new vscode.EventEmitter();
+    context.subscriptions.push(inheritanceLensesChanged);
   }
   if (vscode.window.createTextEditorDecorationType) {
     inactiveCfgDecoration = vscode.window.createTextEditorDecorationType({ opacity: "0.45" });
@@ -1581,6 +1726,10 @@ async function activate(context) {
     vscode.languages.registerInlayHintsProvider("kelyra", {
       provideInlayHints: provideKelyraInlayHints,
       onDidChangeInlayHints: inlayHintsChanged?.event,
+    }),
+    vscode.languages.registerCodeLensProvider("kelyra", {
+      provideCodeLenses: provideKelyraInheritanceLenses,
+      onDidChangeCodeLenses: inheritanceLensesChanged?.event,
     }),
   );
   context.subscriptions.push(
@@ -1632,11 +1781,13 @@ async function activate(context) {
     vscode.commands.registerCommand("kelyra.applyTokenColors", () =>
       guard(selectKelyraColorScheme),
     ),
+    vscode.commands.registerCommand("kelyra.showInheritors", showKelyraInheritors),
   );
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument((document) => {
       if (document.languageId === "kelyra") {
         void startLanguageServer();
+        inheritanceLensesChanged?.fire();
         scheduleCfgRefresh();
       }
     }),
@@ -1646,15 +1797,22 @@ async function activate(context) {
         if (document.languageId === "kelyra") {
           kelyraTree.change(event);
           inlayHintsChanged?.fire();
+          inheritanceLensesChanged?.fire();
           scheduleCfgRefresh();
         }
       },
     )] : []),
     ...(vscode.workspace.onDidCloseTextDocument ? [vscode.workspace.onDidCloseTextDocument(
-      (document) => kelyraTree.close(document),
+      (document) => {
+        kelyraTree.close(document);
+        if (document.languageId === "kelyra") inheritanceLensesChanged?.fire();
+      },
     )] : []),
     vscode.workspace.onDidSaveTextDocument((document) => {
-      if (document.languageId === "kelyra") invalidateKelyraIndex();
+      if (document.languageId === "kelyra") {
+        invalidateKelyraIndex();
+        inheritanceLensesChanged?.fire();
+      }
       else if (document.languageId === "kelp") {
         // A manifest edit can change the artifact path shown in the status bar.
         const directory = document.uri?.fsPath && path.dirname(document.uri.fsPath);
@@ -1683,6 +1841,13 @@ async function activate(context) {
       }
     }),
   );
+  if (vscode.workspace.createFileSystemWatcher) {
+    const watcher = vscode.workspace.createFileSystemWatcher("**/*.kly");
+    context.subscriptions.push(watcher,
+      watcher.onDidCreate(() => inheritanceLensesChanged?.fire()),
+      watcher.onDidChange(() => inheritanceLensesChanged?.fire()),
+      watcher.onDidDelete(() => inheritanceLensesChanged?.fire()));
+  }
   if (vscode.workspace.getConfiguration("kelyra").get("colorScheme", "laevatain") !== "off")
     void applyKelyraTokenColors(false);
   if (vscode.workspace.textDocuments.some(({ languageId }) => languageId === "kelyra"))
@@ -1729,6 +1894,9 @@ module.exports = {
   kelyraTokenColors,
   mergeKelyraTokenColors,
   parseKelyraModule,
+  parseKelyraInheritance,
+  kelyraDescendants,
+  provideKelyraInheritanceLenses,
   provideKelpCompletions,
   provideKelpDefinition,
   provideKelyraCompletions,

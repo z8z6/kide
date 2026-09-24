@@ -167,6 +167,11 @@
         "title": "Select Color Scheme",
         "category": "Kelyra",
         "icon": "$(symbol-color)"
+      },
+      {
+        "command": "kelyra.showInheritors",
+        "title": "Show Inheriting Classes",
+        "category": "Kelyra"
       }
     ],
     "taskDefinitions": [
