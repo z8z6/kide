@@ -63,7 +63,7 @@
           }
         },
         {
-          "match": "\\b(type|alias)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "\\b(alias)\\s+([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": { "name": "storage.type.kelyra" },
             "2": { "name": "entity.name.type.kelyra" }
@@ -151,7 +151,7 @@
         },
         {
           "name": "entity.name.function.lifecycle.kelyra",
-          "match": "\\b(init|deinit|copy|move)(?=\\s*\\()"
+          "match": "\\b(init|deinit|copy|move)(?=\\s*(?:<[^>]+>)?\\s*\\()"
         },
         {
           "name": "support.function.asm.kelyra",
@@ -169,7 +169,7 @@
     },
     "operators": {
       "name": "keyword.operator.kelyra",
-      "match": "->|==|!=|<=|>=|&&|\\|\\||[=+\\-*/%!<>&]"
+      "match": "\\.\\.\\.|->|==|!=|<=|>=|&&|\\|\\||[=+\\-*/%!<>&]"
     },
     "identifiers": {
       "patterns": [

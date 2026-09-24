@@ -56,11 +56,18 @@ assert.deepEqual(
     ["kelp", ["dark", "light"]],
   ],
 );
-for (const { icon } of manifest.contributes.languages)
-  for (const iconPath of Object.values(icon))
-    assert.match(fs.readFileSync(path.join(root, iconPath), "utf8"), /^<svg[\s>]/);
-for (const iconPath of manifest.contributes.languages.flatMap(({ icon }) => Object.values(icon)))
-  assert.match(fs.readFileSync(path.join(root, iconPath), "utf8"), /linearGradient/);
+const [kelyraIcon, kelpIcon] = manifest.contributes.languages.map(({ icon }) => icon);
+assert.equal(kelyraIcon.light, "./icons/kelyra.png");
+assert.equal(kelyraIcon.dark, kelyraIcon.light);
+assert.deepEqual(
+  [...fs.readFileSync(path.join(root, kelyraIcon.light)).subarray(0, 8)],
+  [137, 80, 78, 71, 13, 10, 26, 10],
+);
+for (const iconPath of Object.values(kelpIcon)) {
+  const svg = fs.readFileSync(path.join(root, iconPath), "utf8");
+  assert.match(svg, /^<svg[\s>]/);
+  assert.match(svg, /linearGradient/);
+}
 assert.ok(manifest.contributes.commands.some(({ command }) => command === "kelp.debug"));
 assert.match(extension, /new vscode\.ProcessExecution\(executable, \[command, \.\.\.args\]/);
 assert.equal(manifest.dependencies["vscode-languageclient"], "^10.1.1");
@@ -425,6 +432,11 @@ const index = buildKelyraIndex([
     "module local;\nfn add(left: i32, right: i32) -> i32 { return 0; }\n",
   ),
 ]);
+assert.deepEqual(
+  parseKelyraModule("class Box { init<Args...>(@forward args: ...Args) {} }")
+    .classes.get("Box").init,
+  ["args"],
+);
 const localCall = "module local;\nfn use(value: i32) -> i32 { return add(value, 2); }";
 assert.deepEqual(
   kelyraParameterHints(localCall, index, "all").map(({ name }) => name),

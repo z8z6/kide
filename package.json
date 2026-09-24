@@ -51,8 +51,8 @@
         ],
         "configuration": "./language-configuration.json",
         "icon": {
-          "light": "./icons/kelyra-light.svg",
-          "dark": "./icons/kelyra-dark.svg"
+          "light": "./icons/kelyra.png",
+          "dark": "./icons/kelyra.png"
         }
       },
       {

@@ -69,7 +69,7 @@ come from the C++ compiler through `kelyra-ls`. The editor grammar is in
 regenerate `assets/tree-sitter-kelyra.wasm` (the Tree-sitter CLI may download a
 WASI SDK on the first build).
 
-`.kly` and `kelp.toml` files have their own light and dark file icons, shown by
+`.kly` and `kelp.toml` files have their own file icons, shown by
 the default file icon theme and by any theme that leaves the language to VS Code.
 
 Set `kelyra.colorScheme`, or run **Kelyra: Select Color Scheme**, to choose the
@@ -77,8 +77,8 @@ Laevatain (莱万汀, default), Jue (诀), or Perlica (佩丽卡) palette. The e
 `source.kelyra`-scoped rules, so other languages and the VS Code interface keep
 their current theme. Each palette automatically follows light and dark theme
 changes. Choose `off` to remove the Kelyra rules and use the active theme's
-colors. `.kly` and `kelp.toml` use static geometric icons that do not change
-with the selected character palette.
+colors. `.kly` uses the Kelyra artwork as its icon, while `kelp.toml` uses a
+static geometric icon. Neither changes with the selected character palette.
 It also recognizes `kelp.toml`, provides field hover and completion for
 projects, `build.kind`, `[workspace]` members, and Git or local path
 dependencies, and adds a Kelp activity-bar view with format, compile, debug,

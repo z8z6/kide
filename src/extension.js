@@ -53,7 +53,10 @@ const kelyraTypes = {
 };
 
 const builtinAnnotations = {
-  target: "Restricts an annotation to the listed declaration kinds: `function`, `class`, `field`, `method`, `constructor`, `destructor`, or `annotation`.",
+  singleton: "Makes a class globally unique. `Class.instance()` returns its pointer and initializes it once.",
+  static: "Marks a class field or method as static. Each concrete generic class has its own field storage; static methods have no `this` receiver.",
+  forward: "Forwards a constructor parameter pack with each argument's type and value category preserved.",
+  target: "Restricts an annotation to the listed declaration kinds: `function`, `class`, `field`, `method`, `constructor`, `destructor`, `parameter`, or `annotation`.",
   repeatable: "Allows an annotation to appear more than once on the same declaration.",
   retention: "Sets annotation retention to `source` or `compile`; `compile` is the default.",
 };
@@ -61,15 +64,14 @@ const builtinAnnotations = {
 const classKeywords = {
   class: "Value type with fields, methods, direct construction and scope-based RAII destruction.",
   this: "Implicit pointer to the current class instance. Optional for unambiguous member access; use this.field when a parameter or local shadows a field.",
-  init: "Constructor. Initializes each field once in declaration order before ordinary statements. A class without init gets a generated no-argument constructor.",
+  init: "Constructor. Initializes each field once in declaration order before ordinary statements. `init<Args...>(@forward args: ...Args)` forwards a compile-time parameter pack. A class without init gets a generated no-argument constructor.",
   deinit: "Destructor. Runs automatically on normal scope exits, followed by class fields in reverse order. Cannot be called explicitly.",
 };
 
 const languageKeywords = {
   let: "Declares a local with a type, an initial value, or both.",
   fn: "Declares a function.",
-  type: "Declares a distinct scalar type with the representation of its underlying type.",
-  alias: "Declares another name for an existing type.",
+  alias: "Declares another name for a type; optional type parameters make it reusable across types.",
   pub: "Exports a declaration to importing modules.",
   module: "Declares this file's module.",
   import: "Loads a module. Add `.*` to call its public functions unqualified, or use `import c \"header.h\"` for C headers.",
@@ -243,6 +245,14 @@ const kelyraParameterNames = (tokens, open) => {
       continue;
     }
     if (token.text === "," && depth === 1) { expectName = true; continue; }
+    if (token.text === "@" && depth === 1) {
+      while (tokens[index + 1]?.kind === "name") {
+        ++index;
+        if (tokens[index + 1]?.text !== ".") break;
+        ++index;
+      }
+      continue;
+    }
     if (token.kind === "punct") continue;
     if (depth === 1 && expectName && token.kind === "name") {
       names.push(token.text);
@@ -304,17 +314,28 @@ function parseKelyraTokens(tokens) {
         if (member.text === "fn" && tokens[cursor + 1]?.kind === "name" &&
             tokens[cursor + 2]?.text === "(") {
           info.methods.set(tokens[cursor + 1].text, kelyraParameterNames(tokens, cursor + 2).names);
-        } else if (member.text === "init" && tokens[cursor + 1]?.text === "(") {
-          info.init = kelyraParameterNames(tokens, cursor + 1).names;
+        } else if (member.text === "init") {
+          let parameters = cursor + 1;
+          if (tokens[parameters]?.text === "<") {
+            while (parameters < close && tokens[parameters].text !== ">") ++parameters;
+            ++parameters;
+          }
+          if (tokens[parameters]?.text === "(")
+            info.init = kelyraParameterNames(tokens, parameters).names;
         }
       }
       parsed.classes.set(name, info);
       index = close;
       continue;
     }
-    if (token.text === "fn" && tokens[index + 1]?.kind === "name" &&
-        tokens[index + 2]?.text === "(") {
-      parsed.functions.set(tokens[index + 1].text, kelyraParameterNames(tokens, index + 2).names);
+    if (token.text === "fn" && tokens[index + 1]?.kind === "name") {
+      let parameters = index + 2;
+      if (tokens[parameters]?.text === "<") {
+        while (parameters < tokens.length && tokens[parameters].text !== ">") ++parameters;
+        ++parameters;
+      }
+      if (tokens[parameters]?.text === "(")
+        parsed.functions.set(tokens[index + 1].text, kelyraParameterNames(tokens, parameters).names);
     }
   }
   return parsed;
